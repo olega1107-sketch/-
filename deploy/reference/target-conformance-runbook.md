@@ -96,9 +96,10 @@ node scripts/kubernetes-render.mjs \
   /secure/change/CHG-123/kubernetes-target-config.json
 ```
 
-Три bundles проходят `kubectl apply --dry-run=server`, после чего применяются
+Четыре bundles проходят `kubectl apply --dry-run=server`, после чего применяются
 строго в порядке prerequisites -> external secrets -> completed migration Job ->
-workloads. Полный secret/PKI inventory, NetworkPolicy и rollback порядок описаны
+completed runtime privilege Job -> workloads. Полный secret/PKI inventory,
+NetworkPolicy и rollback порядок описаны
 в [Kubernetes target deployment v1](kubernetes-target-runbook.md). Локальный
 render без target API server остаётся `NOT_RUN` для deployment gate.
 
@@ -170,6 +171,23 @@ cd director/reference
 pnpm db:status
 ```
 
+После migration и до workloads тот же runtime credential, который будет
+смонтирован в Director, проходит read-only catalog probe:
+
+```bash
+export DATABASE_URL_FILE=/run/secrets/director-runtime/database-url
+export DIRECTOR_DATABASE_CA_PATH=/run/secrets/postgres/ca.crt
+export DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_DATABASE=dirizhor_pilot
+export DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_ROLE=dirizhor_runtime
+node dist/postgres-runtime-privilege-cli.js
+```
+
+Probe не выполняет DDL/DML. Он сверяет exact database/login, запрещённые role
+attributes и memberships, ownership/CREATE, опасные table privileges и
+read-only доступ к migration history. JSON stdout содержит только hashes
+database/role, статусы проверок и canonical report hash. Сохранить stdout как
+защищённый artifact; exit `1`, `2` или отсутствие отчёта блокирует rollout.
+
 Затем на отдельной пустой database выполнить real lock-order harness:
 
 ```bash
@@ -200,7 +218,7 @@ pnpm db:test-backup-restore
 database. Production PITR drill выполняется отдельно по
 [Backup and restore v1](../../docs/dirizhor/backup-restore-v1.md).
 
-Registry IDs: `postgres.migration_status`, `postgres.contention`,
+Registry IDs: `postgres.migration_status`, `postgres.runtime_privileges`, `postgres.contention`,
 `postgres.logical_restore`, `postgres.pitr_restore`.
 
 ## 6. Corporate IdP

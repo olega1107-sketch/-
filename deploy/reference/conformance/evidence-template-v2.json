@@ -44,6 +44,7 @@
     { "id": "workload_identity.live_director_to_gateway", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "workload_identity.live_gateway_to_director", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "postgres.migration_status", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "postgres.runtime_privileges", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "postgres.contention", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "postgres.logical_restore", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "postgres.pitr_restore", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },

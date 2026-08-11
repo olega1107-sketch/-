@@ -15,6 +15,8 @@
     "db:document-store-evidence": "node --import tsx scripts/document-store-evidence.ts",
     "db:migrate": "node --import tsx scripts/db-migrate.ts migrate",
     "db:migrate:runtime": "node dist/db-migrate-cli.js migrate",
+    "db:runtime-privileges": "node --import tsx src/postgres-runtime-privilege-cli.ts",
+    "db:runtime-privileges:runtime": "node dist/postgres-runtime-privilege-cli.js",
     "db:status": "node --import tsx scripts/db-migrate.ts status",
     "db:status:runtime": "node dist/db-migrate-cli.js status",
     "db:test-backup-restore": "node --import tsx scripts/postgres-backup-restore.ts",

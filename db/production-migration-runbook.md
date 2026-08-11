@@ -45,7 +45,10 @@ node dist/db-migrate-cli.js status
 ```
 
 Kubernetes Job использует первый вызов с отдельным file-mounted DDL credential;
-workloads применяются только после `condition=complete` и отдельного status gate.
+после `condition=complete` отдельный Job запускает
+`node dist/postgres-runtime-privilege-cli.js` с runtime credential. Workloads
+применяются только после migration status gate и privilege report со
+`status=PASS`.
 
 Expand обязан сохранять работу текущей версии приложения. Новый column сначала
 nullable или имеет metadata-only constant default. Долгий `CHECK`/foreign key
@@ -119,6 +122,7 @@ references и отсутствие записей после выбранной 
 
 Change record должен содержать release id, migration checksums, время каждой
 фазы, backup/PITR point, результаты reconciliation, максимальные lock wait и
-replica lag, canary result, решение о contract и имя ответственного оператора.
+replica lag, canonical runtime privilege report hash, canary result, решение о
+contract и имя ответственного оператора.
 Credentials, connection strings и содержимое пользовательских документов в
 evidence не включаются.

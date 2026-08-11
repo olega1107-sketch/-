@@ -55,6 +55,7 @@ export async function renderKubernetesTarget({
     apply_order: [
       '00-prerequisites.json',
       '10-migration-job.json',
+      '15-runtime-privilege-job.json',
       '20-workloads.json',
     ],
     secret_resources_included: false,
@@ -72,7 +73,7 @@ export function validateKubernetesTargetConfig(config) {
   assertObject(config, 'config');
   assertExactKeys(config, [
     'schema_version', 'deployment_id', 'namespace', 'kubernetes_version',
-    'images', 'replicas', 'public', 'networking', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
+    'images', 'replicas', 'public', 'networking', 'postgresql', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
     'secrets', 'storage', 'resources',
   ], 'config');
   if (config.schema_version !== 1) throw new Error('Unsupported Kubernetes target schema.');
@@ -87,6 +88,7 @@ export function validateKubernetesTargetConfig(config) {
   validateReplicas(config.replicas);
   validatePublic(config.public);
   validateNetworking(config.networking);
+  validatePostgresql(config.postgresql);
   validateOidc(config.oidc, config.public.host);
   validateWorkloadIdentity(config.workload_identity);
   validateInternalProvider(config.internal_provider);
@@ -115,6 +117,7 @@ export function buildKubernetesBundles(config) {
     edgeDisruptionBudget(namespace),
   ];
   const migration = [migrationJob(config)];
+  const runtimePrivilege = [runtimePrivilegeJob(config)];
   const workloads = [
     edgeDeployment(config),
     directorDeployment(config),
@@ -123,6 +126,7 @@ export function buildKubernetesBundles(config) {
   return {
     '00-prerequisites.json': list(prerequisites),
     '10-migration-job.json': list(migration),
+    '15-runtime-privilege-job.json': list(runtimePrivilege),
     '20-workloads.json': list(workloads),
   };
 }
@@ -154,15 +158,31 @@ export function validateRenderedResources(resources, config) {
     }
   }
   const workloads = resources.filter((resource) => ['Deployment', 'Job'].includes(resource.kind));
-  if (workloads.length !== 4) throw new Error('Rendered workload set is incomplete.');
+  if (workloads.length !== 5) throw new Error('Rendered workload set is incomplete.');
   for (const workload of workloads) validateWorkload(workload, config);
-  const migration = workloads.find((resource) => resource.kind === 'Job');
+  const migration = workloads.find(
+    (resource) =>
+      resource.kind === 'Job' &&
+      resource.metadata.labels['app.kubernetes.io/component'] === 'migration',
+  );
   const migrationContainer = migration?.spec?.template?.spec?.containers?.[0];
   if (
     migrationContainer?.command?.join(' ') !== 'node dist/db-migrate-cli.js migrate' ||
     migrationContainer?.image !== config.images.director
   ) {
     throw new Error('Migration job does not use the compiled runtime migrator.');
+  }
+  const privilege = workloads.find(
+    (resource) =>
+      resource.kind === 'Job' &&
+      resource.metadata.labels['app.kubernetes.io/component'] === 'runtime-privilege',
+  );
+  const privilegeContainer = privilege?.spec?.template?.spec?.containers?.[0];
+  if (
+    privilegeContainer?.command?.join(' ') !== 'node dist/postgres-runtime-privilege-cli.js' ||
+    privilegeContainer?.image !== config.images.director
+  ) {
+    throw new Error('Runtime privilege job does not use the compiled read-only probe.');
   }
   const statefulPostgres = resources.some((resource) =>
     ['StatefulSet', 'Deployment'].includes(resource.kind) &&
@@ -177,7 +197,7 @@ export function validateRenderedResources(resources, config) {
   ) {
     throw new Error('Public edge service contract is invalid.');
   }
-  for (const name of ['default-deny', 'allow-dns', 'edge', 'director', 'gateway', 'migration']) {
+  for (const name of ['default-deny', 'allow-dns', 'edge', 'director', 'gateway', 'migration', 'runtime-privilege']) {
     findResource(resources, 'NetworkPolicy', `dirizhor-${name}`);
   }
   return { status: 'ok', resource_count: resources.length };
@@ -413,6 +433,59 @@ function migrationJob(config) {
   }, labels(component), { metadata: { annotations: deploymentAnnotations(config, config.images.director) } });
 }
 
+function runtimePrivilegeJob(config) {
+  const component = 'runtime-privilege';
+  const name = `dirizhor-runtime-privilege-${dnsSlug(config.deployment_id)}`
+    .slice(0, 63)
+    .replace(/-$/, '');
+  return namespacedResource('batch/v1', 'Job', config.namespace, name, {
+    backoffLimit: 0,
+    activeDeadlineSeconds: 300,
+    template: {
+      metadata: { labels: selector(component) },
+      spec: {
+        restartPolicy: 'Never',
+        serviceAccountName: 'dirizhor-director',
+        automountServiceAccountToken: false,
+        enableServiceLinks: false,
+        os: { name: 'linux' },
+        securityContext: podSecurityContext(),
+        imagePullSecrets: [{ name: config.secrets.image_pull }],
+        containers: [{
+          name: 'runtime-privilege',
+          image: config.images.director,
+          imagePullPolicy: 'IfNotPresent',
+          command: ['node', 'dist/postgres-runtime-privilege-cli.js'],
+          env: [
+            secretFileEnv('DATABASE_URL_FILE', '/run/secrets/director-runtime/database-url'),
+            secretFileEnv('DIRECTOR_DATABASE_CA_PATH', '/run/secrets/postgres/ca.crt'),
+            {
+              name: 'DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_DATABASE',
+              value: config.postgresql.database_name,
+            },
+            {
+              name: 'DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_ROLE',
+              value: config.postgresql.runtime_role,
+            },
+          ],
+          resources: config.resources.migration,
+          securityContext: containerSecurityContext(),
+          volumeMounts: [
+            { name: 'director-runtime', mountPath: '/run/secrets/director-runtime', readOnly: true },
+            { name: 'postgres-ca', mountPath: '/run/secrets/postgres', readOnly: true },
+          ],
+        }],
+        volumes: [
+          secretVolume('director-runtime', config.secrets.director_database),
+          secretVolume('postgres-ca', config.secrets.postgres_ca),
+        ],
+      },
+    },
+  }, labels(component), {
+    metadata: { annotations: deploymentAnnotations(config, config.images.director) },
+  });
+}
+
 function deployment(config, component, replicas, container, volumes, strategy) {
   return namespacedResource('apps/v1', 'Deployment', config.namespace, `dirizhor-${component}`, {
     replicas,
@@ -494,6 +567,10 @@ function networkPolicies(config) {
       ],
     }),
     networkPolicy(namespace, 'migration', selector('migration'), {
+      policyTypes: ['Ingress', 'Egress'],
+      egress: config.networking.postgresql_cidrs.map((cidr) => portPeer(cidr, config.networking.postgresql_port)),
+    }),
+    networkPolicy(namespace, 'runtime-privilege', selector('runtime-privilege'), {
       policyTypes: ['Ingress', 'Egress'],
       egress: config.networking.postgresql_cidrs.map((cidr) => portPeer(cidr, config.networking.postgresql_port)),
     }),
@@ -654,6 +731,18 @@ function validateNetworking(networking) {
   }
 }
 
+function validatePostgresql(postgresql) {
+  assertObject(postgresql, 'postgresql');
+  assertExactKeys(postgresql, ['database_name', 'runtime_role'], 'postgresql');
+  const identifierPattern = /^[A-Za-z_][A-Za-z0-9_-]{0,62}$/;
+  if (
+    !identifierPattern.test(postgresql.database_name) ||
+    !identifierPattern.test(postgresql.runtime_role)
+  ) {
+    throw new Error('PostgreSQL database name or runtime role is invalid.');
+  }
+}
+
 function validateInternalProvider(provider) {
   assertObject(provider, 'internal_provider');
   assertExactKeys(provider, ['origin', 'models'], 'internal_provider');
@@ -739,7 +828,7 @@ function validateAgentRoutes(routes, internalModels) {
 function validateSecrets(secrets) {
   assertObject(secrets, 'secrets');
   const keys = [
-    'image_pull', 'director_workload_identity', 'gateway_workload_identity', 'director_runtime', 'director_tls',
+    'image_pull', 'director_workload_identity', 'gateway_workload_identity', 'director_runtime', 'director_database', 'director_tls',
     'director_gateway_client_tls', 'gateway_runtime', 'gateway_tls',
     'gateway_director_client_tls', 'gateway_probe_client_tls', 'edge_tls',
     'gateway_internal_provider_tls', 'edge_director_ca', 'postgres_ca', 'migration_database',

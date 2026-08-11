@@ -155,7 +155,11 @@ pnpm db:status
 DDL-роли и не передаётся процессу Director; совпадение с runtime `DATABASE_URL`
 допустимо только локально.
 Production image содержит скомпилированные команды без `tsx`:
-`node dist/db-migrate-cli.js migrate` и `node dist/db-migrate-cli.js status`.
+`node dist/db-migrate-cli.js migrate`, `node dist/db-migrate-cli.js status` и
+`node dist/postgres-runtime-privilege-cli.js`. Последняя команда выполняется с
+runtime credential после migration, только читает catalogs и должна вернуть
+`status=PASS` до запуска workloads; exact database/role передаются через
+`DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_DATABASE/ROLE`.
 Public upload сам создаёт immutable bytes под
 `DOCUMENT_STORE_ROOT`; заранее заполненные строки `document_versions` должны
 ссылаться на существующие relative keys в том же хранилище.

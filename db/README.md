@@ -26,6 +26,21 @@ Migration credential является отдельной операторско�
 `USAGE` schema и `SELECT` на `dirizhor_migrations.schema_migrations`, помимо
 необходимых DML-прав на application schema; менять migration history он не должен.
 
+Effective права проверяются тем же runtime credential после migration и до
+запуска workloads. Проверка только читает PostgreSQL catalogs и не выводит
+database/role names:
+
+```bash
+export DATABASE_URL_FILE=/run/secrets/director-runtime/database-url
+export DIRECTOR_DATABASE_CA_PATH=/run/secrets/postgresql-ca.crt
+export DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_DATABASE=dirizhor_pilot
+export DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_ROLE=dirizhor_runtime
+node dist/postgres-runtime-privilege-cli.js
+```
+
+Только JSON report со `status=PASS` закрывает
+`postgres.runtime_privileges`; локальный unit test не заменяет target evidence.
+
 ## Уже существующая schema v1
 
 Сначала выполнить и проверить backup/restore, остановить schema changes и

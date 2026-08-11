@@ -31,6 +31,10 @@
     "internal_provider_egress_cidrs": ["10.80.0.10/32"],
     "ai_provider_egress_cidrs": ["192.0.2.30/32"]
   },
+  "postgresql": {
+    "database_name": "dirizhor_pilot",
+    "runtime_role": "dirizhor_runtime"
+  },
   "oidc": {
     "issuer_url": "https://idp.example.invalid",
     "client_id": "dirizhor-pilot",
@@ -67,6 +71,7 @@
     "director_workload_identity": "dirizhor-director-workload-identity",
     "gateway_workload_identity": "dirizhor-gateway-workload-identity",
     "director_runtime": "dirizhor-director-runtime",
+    "director_database": "dirizhor-director-database",
     "director_tls": "dirizhor-director-tls",
     "director_gateway_client_tls": "dirizhor-director-gateway-client-tls",
     "gateway_runtime": "dirizhor-gateway-runtime",

@@ -135,7 +135,9 @@ missing, dirty, diverged или pending migration history. Перед rollout о
 
 Migration credential имеет DDL-права и существует только в migration job.
 Director runtime credential не может менять migration registry и имеет к нему
-только `USAGE/SELECT`, необходимые startup guard.
+только `USAGE/SELECT`, необходимые startup guard. Перед workloads renderer
+запускает отдельный read-only privilege Job с тем же runtime credential; его
+target JSON report закрывает `postgres.runtime_privileges`.
 
 Полный порядок `expand -> backfill -> validate -> contract`, baseline adoption
 для существующей v1 и rollback procedure описаны в

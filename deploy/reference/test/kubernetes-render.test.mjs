@@ -36,6 +36,10 @@ test('target config rejects mutable images, unsafe exposure, and unsupported sca
     () => validateKubernetesTargetConfig({ ...config, agent_routes: config.agent_routes.map((route) => route.provider === 'openai' ? { ...route, deployment_class: 'internal', provider_data_profile_version: null } : route) }),
     /deployment-class policy/,
   );
+  assert.throws(
+    () => validateKubernetesTargetConfig({ ...config, postgresql: { ...config.postgresql, runtime_role: 'invalid role' } }),
+    /runtime role is invalid/,
+  );
 });
 
 test('renderer writes ordered private bundles without Secret or PostgreSQL workloads', async () => {
@@ -49,9 +53,10 @@ test('renderer writes ordered private bundles without Secret or PostgreSQL workl
     assert.deepEqual(evidence.apply_order, [
       '00-prerequisites.json',
       '10-migration-job.json',
+      '15-runtime-privilege-job.json',
       '20-workloads.json',
     ]);
-    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 23);
+    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 25);
     assert.equal(evidence.secret_resources_included, false);
     assert.match(evidence.render_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(fixture.output)).mode & 0o777, 0o700);
@@ -89,8 +94,23 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
   assert.ok(gatewayEnvNames.includes('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE'));
   assert.ok(gatewayEnvNames.includes('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE'));
   assert.equal(gatewayEnvNames.includes('GATEWAY_DIRECTOR_TOKEN_FILE'), false);
-  const job = resources.find((resource) => resource.kind === 'Job');
-  assert.deepEqual(job.spec.template.spec.containers[0].command, ['node', 'dist/db-migrate-cli.js', 'migrate']);
+  const migration = job(resources, 'migration');
+  assert.deepEqual(migration.spec.template.spec.containers[0].command, ['node', 'dist/db-migrate-cli.js', 'migrate']);
+  const privilege = job(resources, 'runtime-privilege');
+  assert.deepEqual(privilege.spec.template.spec.containers[0].command, ['node', 'dist/postgres-runtime-privilege-cli.js']);
+  assert.equal(
+    privilege.spec.template.spec.volumes.find((volume) => volume.name === 'director-runtime').secret.secretName,
+    config.secrets.director_database,
+  );
+  assert.deepEqual(
+    privilege.spec.template.spec.containers[0].env
+      .filter((entry) => entry.name.startsWith('DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_'))
+      .map((entry) => [entry.name, entry.value]),
+    [
+      ['DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_DATABASE', config.postgresql.database_name],
+      ['DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_ROLE', config.postgresql.runtime_role],
+    ],
+  );
 });
 
 test('manifest validator blocks root, mutable image, embedded Secret, and migration drift', () => {
@@ -117,7 +137,13 @@ test('manifest validator blocks root, mutable image, embedded Secret, and migrat
     {
       pattern: /compiled runtime migrator/,
       mutate(resources) {
-        resources.find((resource) => resource.kind === 'Job').spec.template.spec.containers[0].command = ['pnpm', 'db:migrate'];
+        job(resources, 'migration').spec.template.spec.containers[0].command = ['pnpm', 'db:migrate'];
+      },
+    },
+    {
+      pattern: /compiled read-only probe/,
+      mutate(resources) {
+        job(resources, 'runtime-privilege').spec.template.spec.containers[0].command = ['pnpm', 'db:runtime-privileges'];
       },
     },
   ];
@@ -181,6 +207,10 @@ function validConfig() {
       internal_provider_egress_cidrs: ['10.80.0.10/32'],
       ai_provider_egress_cidrs: ['192.0.2.30/32'],
     },
+    postgresql: {
+      database_name: 'dirizhor_pilot',
+      runtime_role: 'dirizhor_runtime',
+    },
     oidc: {
       issuer_url: 'https://idp.example.invalid',
       client_id: 'dirizhor-pilot',
@@ -217,6 +247,7 @@ function validConfig() {
       director_workload_identity: 'dirizhor-director-workload-identity',
       gateway_workload_identity: 'dirizhor-gateway-workload-identity',
       director_runtime: 'dirizhor-director-runtime',
+      director_database: 'dirizhor-director-database',
       director_tls: 'dirizhor-director-tls',
       director_gateway_client_tls: 'dirizhor-director-gateway-client-tls',
       gateway_runtime: 'dirizhor-gateway-runtime',
@@ -272,6 +303,13 @@ async function renderedResources(directory, files) {
 function deployment(resources, component) {
   return resources.find((resource) =>
     resource.kind === 'Deployment' &&
+    resource.metadata.labels['app.kubernetes.io/component'] === component,
+  );
+}
+
+function job(resources, component) {
+  return resources.find((resource) =>
+    resource.kind === 'Job' &&
     resource.metadata.labels['app.kubernetes.io/component'] === component,
   );
 }

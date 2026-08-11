@@ -13,6 +13,7 @@
     { "id": "workload_identity.live_director_to_gateway", "category": "workload_identity", "stop_ship": true },
     { "id": "workload_identity.live_gateway_to_director", "category": "workload_identity", "stop_ship": true },
     { "id": "postgres.migration_status", "category": "postgres", "stop_ship": true },
+    { "id": "postgres.runtime_privileges", "category": "postgres", "stop_ship": true },
     { "id": "postgres.contention", "category": "postgres", "stop_ship": true },
     { "id": "postgres.logical_restore", "category": "postgres", "stop_ship": true },
     { "id": "postgres.pitr_restore", "category": "postgres", "stop_ship": true },

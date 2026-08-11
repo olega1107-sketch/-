@@ -1,0 +1,2643 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
+
+info:
+  title: Director API
+  version: 0.1.0
+  summary: Контролируемый API проекта «Дирижёр»
+  description: |
+    Статус: архитектурный черновик v1.
+    Director API является единственной пользовательской точкой доступа к
+    корпоративной памяти, задачам и AI-агентам. Каждый запрос проходит
+    Auth/RBAC. AI получает только явно выбранные версии документов.
+
+servers:
+  - url: /api/v1
+    description: Текущая установка Director API
+
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+
+tags:
+  - name: Authentication
+    description: Выпуск и отзыв короткоживущих пользовательских сессий.
+  - name: Projects
+    description: Проекты и их базовые метаданные.
+  - name: Topics
+    description: Тематическая иерархия внутри проекта.
+  - name: Memory
+    description: Карточки корпоративной памяти и версии документов.
+  - name: Tasks
+    description: Задачи, поиск контекста и хронология исполнения.
+  - name: Agent Runs
+    description: Запуски AI через контролируемый Agent Gateway.
+  - name: Decisions
+    description: Типизированные решения и их замена новыми версиями.
+  - name: Audit
+    description: Метаданные неизменяемого журнала действий.
+  - name: Confirmations
+    description: Одноразовые подтверждения замороженных операций.
+
+paths:
+  /auth/sessions:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Authentication]
+      summary: Создать локальную пользовательскую сессию
+      description: |
+        Проверяет local identity и возвращает opaque bearer ровно один раз.
+        Endpoint доступен только при явно включённом local password login.
+      operationId: createUserSession
+      security: []
+      x-audit-events:
+        - authentication.succeeded
+        - authentication.failed
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SessionCreate'
+      responses:
+        '201':
+          description: Сессия создана; ответ запрещено кэшировать
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Pragma:
+              schema:
+                type: string
+                const: no-cache
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/IssuedUserSession'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/oidc/start:
+    get:
+      tags: [Authentication]
+      summary: Начать корпоративный OIDC-вход
+      description: |
+        Создаёт короткоживущую одноразовую server-side транзакцию и перенаправляет
+        браузер на authorization endpoint провайдера. State, nonce и PKCE S256
+        уникальны для каждой попытки; browser token передаётся только в
+        Secure HttpOnly SameSite=Lax __Host-cookie.
+      operationId: startOidcLogin
+      security: []
+      responses:
+        '302':
+          description: Перенаправление на точный authorization endpoint IdP
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+            Set-Cookie:
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Referrer-Policy:
+              schema:
+                type: string
+                const: no-referrer
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/oidc/callback:
+    get:
+      tags: [Authentication]
+      summary: Завершить корпоративный OIDC-вход
+      description: |
+        Атомарно потребляет browser-bound транзакцию, проверяет state, nonce,
+        PKCE, issuer, audience и подпись ID Token, затем сопоставляет точную
+        заранее созданную identity по `(issuer, sub)` и ожидаемому provider code. Email не используется
+        для автоматической привязки. Успех создаёт внутреннюю Director session в
+        Secure HttpOnly __Host-cookie; bearer и токены IdP в redirect не попадают.
+        Обработанный отказ authentication flow возвращает браузер на фиксированный
+        same-origin UI URL с безопасным `auth_error` code; непредвиденная runtime/DB
+        ошибка остаётся generic `500`.
+      operationId: completeOidcLogin
+      security: []
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 8192
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 512
+        - name: error
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 256
+        - name: error_description
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+        - name: error_uri
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+        - name: session_state
+          in: query
+          required: false
+          schema:
+            type: string
+            maxLength: 2048
+      x-audit-events:
+        - authentication.succeeded
+      x-conditional-audit-events:
+        provider_rejected: authentication.failed
+        provider_unavailable: authentication.failed
+        identity_not_provisioned: authentication.failed
+      responses:
+        '303':
+          description: Фиксированное перенаправление в UI после успеха или отказа
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+            Set-Cookie:
+              required: true
+              schema:
+                type: string
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+            Referrer-Policy:
+              schema:
+                type: string
+                const: no-referrer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/sessions/current:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    delete:
+      tags: [Authentication]
+      summary: Отозвать текущую пользовательскую сессию
+      operationId: revokeCurrentUserSession
+      x-audit-events: [session.revoked]
+      description: |
+        При cookie-аутентификации mutation дополнительно требует точного
+        same-origin `Origin`; обязательный `X-Request-Id` не является CORS-safelisted.
+      responses:
+        '204':
+          description: Текущая сессия отозвана
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /auth/oidc/logout:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Authentication]
+      summary: Отозвать OIDC-сессию и подготовить logout у IdP
+      operationId: revokeOidcUserSession
+      x-audit-events: [session.revoked]
+      description: |
+        Требует текущую сессию, выпущенную настроенным OIDC provider, и точный
+        same-origin `Origin` при cookie-аутентификации. Сначала атомарно отзывает
+        локальную Director session, затем возвращает URL RP-initiated logout из
+        проверенного discovery metadata. `logout_url` равен `null`, если IdP не
+        объявил `end_session_endpoint`. UI выполняет top-level navigation только
+        после успешного ответа. Raw ID Token в Director не хранится, поэтому
+        `id_token_hint` не передаётся и IdP может запросить подтверждение выхода.
+      responses:
+        '200':
+          description: Локальная сессия отозвана; URL IdP может отсутствовать
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+            Cache-Control:
+              schema:
+                type: string
+                const: no-store
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [logout_url]
+                properties:
+                  logout_url:
+                    type: [string, 'null']
+                    format: uri
+                    maxLength: 4096
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Projects]
+      summary: Получить доступные проекты
+      operationId: listProjects
+      x-permissions: [project.read]
+      parameters:
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Страница доступных проектов
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Projects]
+      summary: Создать проект
+      operationId: createProject
+      x-permissions: [project.create]
+      x-audit-events: [project.created]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectCreate'
+      responses:
+        '201':
+          description: Проект создан вместе с default AI-policy и ролью owner
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{project_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/ProjectIdPath'
+    get:
+      tags: [Projects]
+      summary: Получить проект
+      operationId: getProject
+      x-permissions: [project.read]
+      responses:
+        '200':
+          description: Карточка проекта
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Project'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /projects/{project_id}/topics:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/ProjectIdPath'
+    get:
+      tags: [Topics]
+      summary: Получить темы проекта
+      operationId: listProjectTopics
+      x-permissions: [project.read, topic.read]
+      parameters:
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Страница тем проекта
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TopicPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      tags: [Topics]
+      summary: Создать тему
+      operationId: createProjectTopic
+      x-permissions: [project.read, topic.create]
+      x-audit-events: [topic.created]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TopicCreate'
+      responses:
+        '201':
+          description: Тема создана
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Topic'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /memory-objects:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Memory]
+      summary: Создать текстовый объект памяти без файла
+      description: |
+        Endpoint создает только общие типы реестра. Decision, open_question и
+        ai_result создаются специализированными процессами, чтобы карточка
+        памяти и типизированная запись возникали атомарно.
+      operationId: createMemoryObject
+      x-permissions: [project.read, memory_object.create]
+      x-audit-events: [memory_object.created]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MemoryObjectCreate'
+      responses:
+        '201':
+          description: Объект памяти создан
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /memory-objects:upload:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Memory]
+      summary: Загрузить документ в корпоративную память
+      operationId: uploadMemoryObject
+      x-permissions:
+        - project.read
+        - memory_object.create
+        - document_version.create
+      x-audit-events: [memory_object.created, document_version.created]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/MemoryObjectUpload'
+            encoding:
+              keywords:
+                style: form
+                explode: true
+      responses:
+        '201':
+          description: Объект и первая версия документа созданы
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /memory-objects/search:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Memory]
+      summary: Искать по разрешенной части реестра памяти
+      description: Недоступные объекты фильтруются до подсчета и пагинации.
+      operationId: searchMemoryObjects
+      x-permissions: [project.read, memory_object.search, memory_object.read]
+      x-result-visibility-permissions:
+        confidential: memory_object.read_confidential
+        restricted: memory_object.read_restricted
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdQuery'
+        - name: q
+          in: query
+          required: true
+          description: Поисковая строка по карточкам реестра
+          schema:
+            type: string
+            minLength: 1
+        - name: type
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/MemoryObjectType'
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Страница разрешенных карточек памяти
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryObjectPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /memory-objects/{memory_object_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/MemoryObjectIdPath'
+    get:
+      tags: [Memory]
+      summary: Получить карточку и текущую версию объекта памяти
+      description: |
+        Карточка доступна при `memory_object.read`. Поле `current_version`
+        возвращается только при наличии `document_version.read`.
+      operationId: getMemoryObject
+      x-permissions: [memory_object.read]
+      x-conditional-permissions:
+        confidential_object: memory_object.read_confidential
+        restricted_object: memory_object.read_restricted
+        current_version: document_version.read
+      x-audit-events: [memory_object.read]
+      responses:
+        '200':
+          description: Объект памяти
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryObject'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /memory-objects/{memory_object_id}/versions:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/MemoryObjectIdPath'
+    post:
+      tags: [Memory]
+      summary: Создать новую версию документа
+      operationId: createDocumentVersion
+      x-permissions: [memory_object.update, document_version.create]
+      x-audit-events: [document_version.created, memory_object.updated]
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: '#/components/schemas/DocumentVersionUpload'
+      responses:
+        '201':
+          description: Новая версия создана и стала текущей
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DocumentVersion'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /tasks:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Tasks]
+      summary: Создать задачу пользователя
+      operationId: createTask
+      x-permissions: [project.read, task.create]
+      x-audit-events: [task.created]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskCreate'
+      responses:
+        '201':
+          description: Задача создана
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /tasks/{task_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/TaskIdPath'
+    get:
+      tags: [Tasks]
+      summary: Получить задачу
+      operationId: getTask
+      x-permissions: [task.read]
+      responses:
+        '200':
+          description: Задача
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Task'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /tasks/{task_id}/context:search:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/TaskIdPath'
+    post:
+      tags: [Tasks]
+      summary: Подобрать карточки контекста для задачи
+      description: Полный текст документов этим endpoint не возвращается.
+      operationId: searchTaskContext
+      x-permissions: [task.read, memory_object.search, memory_object.read]
+      x-result-visibility-permissions:
+        confidential: memory_object.read_confidential
+        restricted: memory_object.read_restricted
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskContextSearchRequest'
+      responses:
+        '200':
+          description: Кандидаты контекста
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskContextSearchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /tasks/{task_id}/timeline:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/TaskIdPath'
+    get:
+      tags: [Tasks]
+      summary: Получить историю задачи
+      operationId: getTaskTimeline
+      x-permissions: [task.read]
+      x-result-visibility-permissions:
+        confidential: memory_object.read_confidential
+        restricted: memory_object.read_restricted
+      parameters:
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Хронология доступных событий и результатов
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskTimelinePage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /tasks/{task_id}/agent-runs:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/TaskIdPath'
+    post:
+      tags: [Agent Runs]
+      summary: Запустить AI-агента на выбранном контексте
+      operationId: createAgentRun
+      x-permissions:
+        - task.read
+        - agent_run.create
+        - agent_context.share
+        - memory_object.read
+        - document_version.read
+      x-conditional-permissions:
+        external_provider: agent_provider.use_external
+        confidential_context:
+          - memory_object.read_confidential
+          - agent_context.share_confidential
+        restricted_context: memory_object.read_restricted
+      x-policy-constraints:
+        restricted_external_context: forbidden
+      x-audit-events:
+        - agent_run.dispatched
+        - memory_object.read
+        - agent_context.attached
+        - agent_context.redeemed
+      x-conditional-audit-events:
+        confirmation_required: confirmation.created
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentRunCreate'
+      responses:
+        '202':
+          description: Запуск принят в очередь или уже выполняется
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRun'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/RequiresConfirmation'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /agent-runs/{agent_run_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    get:
+      tags: [Agent Runs]
+      summary: Получить запуск агента
+      description: Возвращает технические метаданные без prompt и текста результата.
+      operationId: getAgentRun
+      x-permissions: [agent_run.read]
+      responses:
+        '200':
+          description: Запуск агента
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRun'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /agent-runs/{agent_run_id}/result:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    get:
+      tags: [Agent Runs]
+      summary: Получить временный результат запуска
+      operationId: getAgentRunResult
+      x-permissions:
+        - agent_run.read
+        - memory_object.read
+        - document_version.read
+      x-conditional-permissions:
+        confidential_context: memory_object.read_confidential
+        restricted_context: memory_object.read_restricted
+      responses:
+        '200':
+          description: Результат AI, еще не обязательно сохраненный в память
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentRunResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/TaskNotReady'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /agent-runs/{agent_run_id}/result:save:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    post:
+      tags: [Agent Runs]
+      summary: Сохранить AI-результат в корпоративную память
+      description: |
+        Sensitivity нового объекта не может быть ниже максимального уровня
+        переданного контекста без отдельной операции понижения чувствительности.
+      operationId: saveAgentRunResult
+      x-permissions:
+        - agent_run.read
+        - ai_result.save
+        - memory_object.read
+        - memory_object.create
+        - document_version.read
+        - document_version.create
+      x-conditional-permissions:
+        confidential_context: memory_object.read_confidential
+        restricted_context: memory_object.read_restricted
+      x-confirmation: always
+      x-audit-events:
+        - confirmation.created
+        - ai_result.saved
+        - memory_object.created
+        - document_version.created
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentResultSaveRequest'
+      responses:
+        '201':
+          description: AI-результат сохранен как объект корпоративной памяти
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemoryObject'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/RequiresConfirmation'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decisions:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Decisions]
+      summary: Создать решение
+      operationId: createDecision
+      x-permissions: [project.read, decision.create]
+      x-conditional-permissions:
+        approved_status: decision.approve
+      x-confirmation-policy:
+        approved_status: required
+      x-audit-events: [decision.created]
+      x-conditional-audit-events:
+        approved_status:
+          - confirmation.created
+          - decision.approved
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionCreate'
+      responses:
+        '201':
+          description: Решение и его карточка памяти созданы
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/RequiresConfirmation'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decisions/{decision_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/DecisionIdPath'
+    get:
+      tags: [Decisions]
+      summary: Получить решение
+      operationId: getDecision
+      x-permissions: [decision.read, memory_object.read]
+      x-conditional-permissions:
+        confidential_decision: memory_object.read_confidential
+        restricted_decision: memory_object.read_restricted
+      responses:
+        '200':
+          description: Решение
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decisions/{decision_id}:supersede:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/DecisionIdPath'
+    post:
+      tags: [Decisions]
+      summary: Заменить утвержденное решение новым
+      operationId: supersedeDecision
+      x-permissions:
+        - decision.read
+        - decision.approve
+        - decision.supersede
+        - memory_object.read
+      x-conditional-permissions:
+        confidential_decision: memory_object.read_confidential
+        restricted_decision: memory_object.read_restricted
+      x-confirmation: always
+      x-audit-events:
+        - confirmation.created
+        - decision.created
+        - decision.approved
+        - decision.superseded
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DecisionSupersedeRequest'
+      responses:
+        '201':
+          description: Новое approved-решение создано, старое стало superseded
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionSupersedeResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/RequiresConfirmation'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /audit-events:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Audit]
+      summary: Получить разрешенные события аудита
+      description: "`target_type` и `target_id` должны передаваться вместе."
+      operationId: listAuditEvents
+      x-permissions: [audit_event.read]
+      parameters:
+        - name: project_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: target_type
+          in: query
+          required: false
+          description: Тип цели; требует `target_id`.
+          schema:
+            type: string
+            minLength: 1
+        - name: target_id
+          in: query
+          required: false
+          description: UUID цели; требует `target_type`.
+          schema:
+            type: string
+            format: uuid
+        - name: task_id
+          in: query
+          required: false
+          schema:
+            type: string
+            format: uuid
+        - name: action
+          in: query
+          required: false
+          schema:
+            type: string
+            minLength: 1
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Страница audit events
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditEventPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /confirmations:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+    get:
+      tags: [Confirmations]
+      summary: Получить очередь подтверждений проекта
+      description: Возвращает только подтверждения указанного статуса; по умолчанию pending.
+      operationId: listConfirmations
+      x-permissions: [project.read, confirmation.read]
+      parameters:
+        - $ref: '#/components/parameters/ProjectIdQuery'
+        - name: status
+          in: query
+          required: false
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ConfirmationStatus'
+            default: pending
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+      responses:
+        '200':
+          description: Страница подтверждений проекта
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConfirmationPage'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /confirmations/{confirmation_id}:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/ConfirmationIdPath'
+    get:
+      tags: [Confirmations]
+      summary: Получить ожидающее или завершенное подтверждение
+      operationId: getConfirmation
+      x-permissions: [confirmation.read]
+      responses:
+        '200':
+          description: Confirmation
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Confirmation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /confirmations/{confirmation_id}:approve:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/ConfirmationIdPath'
+    post:
+      tags: [Confirmations]
+      summary: Подтвердить и продолжить защищенную операцию
+      operationId: approveConfirmation
+      x-permissions: [confirmation.approve]
+      x-policy-constraints:
+        target_operation_permission: required
+        payload_hash_revalidation: required
+      x-audit-events: [confirmation.approved, confirmation.consumed]
+      responses:
+        '200':
+          description: Актуальное состояние confirmation после продолжения операции
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Confirmation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /confirmations/{confirmation_id}:reject:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/ConfirmationIdPath'
+    post:
+      tags: [Confirmations]
+      summary: Отклонить защищенную операцию
+      operationId: rejectConfirmation
+      x-permissions: [confirmation.reject]
+      x-audit-events: [confirmation.rejected]
+      responses:
+        '200':
+          description: Отклоненное confirmation
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Confirmation'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Высокоэнтропийный opaque session token; в БД хранится только SHA-256 hash.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-dirizhor_session
+      description: |
+        Secure HttpOnly SameSite=Lax Director session. Cookie-authenticated
+        mutations требуют точного HTTPS same-origin Origin.
+
+  parameters:
+    RequestIdHeader:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: UUID логического запроса для трассировки и аудита.
+      schema:
+        type: string
+        format: uuid
+    LimitQuery:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+    CursorQuery:
+      name: cursor
+      in: query
+      required: false
+      description: Непрозрачный cursor, полученный в предыдущем ответе.
+      schema:
+        type: string
+        minLength: 1
+    ProjectIdPath:
+      name: project_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ProjectIdQuery:
+      name: project_id
+      in: query
+      required: true
+      schema:
+        type: string
+        format: uuid
+    MemoryObjectIdPath:
+      name: memory_object_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TaskIdPath:
+      name: task_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    AgentRunIdPath:
+      name: agent_run_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DecisionIdPath:
+      name: decision_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ConfirmationIdPath:
+      name: confirmation_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  headers:
+    RequestId:
+      description: UUID запроса, использованный Director API.
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  responses:
+    BadRequest:
+      description: Запрос не соответствует контракту.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Access token отсутствует, недействителен или сессия отозвана.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: Principal известен, но действие не разрешено.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Ресурс не существует или не должен раскрываться пользователю.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Операция конфликтует с текущим состоянием ресурса.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TaskNotReady:
+      description: Результат запуска еще не готов или запуск завершился ошибкой.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RequiresConfirmation:
+      description: Permission есть, но точная операция требует confirmation.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RequiresConfirmationErrorResponse'
+    PayloadTooLarge:
+      description: Файл превышает настроенный лимит.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    RateLimited:
+      description: Превышен лимит запросов.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: Число секунд до следующей попытки.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Внутренняя ошибка без раскрытия чувствительных деталей.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Внешняя зависимость временно недоступна.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    NullableUuid:
+      type: [string, 'null']
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    NullableTimestamp:
+      type: [string, 'null']
+      format: date-time
+    Sha256Hash:
+      type: string
+      pattern: '^sha256:[0-9a-f]{64}$'
+    NullableCursor:
+      type: [string, 'null']
+
+    ProjectStatus:
+      type: string
+      enum: [active, archived]
+    MemoryObjectType:
+      type: string
+      enum:
+        - document
+        - protocol
+        - decision
+        - research_result
+        - open_question
+        - ai_result
+        - note
+    DirectMemoryObjectType:
+      type: string
+      enum: [note, protocol, research_result]
+    UploadMemoryObjectType:
+      type: string
+      enum: [document, protocol, research_result]
+    MemoryObjectStatus:
+      type: string
+      enum: [active, archived]
+    SensitivityLevel:
+      type: string
+      enum: [public, internal, confidential, restricted]
+    TaskStatus:
+      type: string
+      enum:
+        - created
+        - planning
+        - awaiting_context
+        - awaiting_user_confirmation
+        - running_agent
+        - reviewing
+        - completed
+        - failed
+        - cancelled
+    AgentRunStatus:
+      type: string
+      enum: [queued, running, completed, failed, cancelled, awaiting_user_confirmation]
+    DeploymentClass:
+      type: string
+      enum: [internal, external]
+    DecisionStatus:
+      type: string
+      enum: [draft, proposed, approved, rejected, superseded]
+    DecisionCreateStatus:
+      type: string
+      enum: [draft, proposed, approved]
+      default: draft
+    ConfirmationStatus:
+      type: string
+      enum: [pending, approved, rejected, expired, consumed, revoked]
+    ConfirmationOperation:
+      type: string
+      enum:
+        - agent_context_share
+        - bulk_context_share
+        - ai_result_save
+        - decision_approve
+        - decision_supersede
+        - sensitivity_lower
+        - break_glass_project_recovery
+    RelationshipEndpointType:
+      type: string
+      enum: [memory_object, decision, open_question, task, agent_run]
+    RelationshipType:
+      type: string
+      enum:
+        - references
+        - depends_on
+        - contradicts
+        - supersedes
+        - explains
+        - implements
+        - belongs_to
+        - derived_from
+
+    ProjectCreate:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        description:
+          type: [string, 'null']
+    Project:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - title
+        - status
+        - owner_user_id
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        description:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/ProjectStatus'
+        owner_user_id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        archived_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+    ProjectPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Project'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    TopicCreate:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        summary:
+          type: [string, 'null']
+        parent_topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+    Topic:
+      type: object
+      additionalProperties: false
+      required: [id, project_id, title, created_at, updated_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        summary:
+          type: [string, 'null']
+        parent_topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    TopicPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Topic'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    MemoryObjectCreate:
+      type: object
+      additionalProperties: false
+      required: [project_id, type, title]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        type:
+          $ref: '#/components/schemas/DirectMemoryObjectType'
+        title:
+          type: string
+          minLength: 1
+        summary:
+          type: [string, 'null']
+        keywords:
+          type: array
+          uniqueItems: true
+          default: []
+          items:
+            type: string
+            minLength: 1
+        sensitivity_level:
+          allOf:
+            - $ref: '#/components/schemas/SensitivityLevel'
+          default: internal
+    MemoryObjectUpload:
+      type: object
+      additionalProperties: false
+      required: [project_id, type, title, file]
+      properties:
+        project_id:
+          type: string
+          format: uuid
+        topic_id:
+          type: [string, 'null']
+          format: uuid
+        type:
+          $ref: '#/components/schemas/UploadMemoryObjectType'
+        title:
+          type: string
+          minLength: 1
+        summary:
+          type: [string, 'null']
+        keywords:
+          type: array
+          uniqueItems: true
+          default: []
+          items:
+            type: string
+            minLength: 1
+        sensitivity_level:
+          allOf:
+            - $ref: '#/components/schemas/SensitivityLevel'
+          default: internal
+        file:
+          type: string
+          format: binary
+    DocumentVersionUpload:
+      type: object
+      additionalProperties: false
+      required: [file]
+      properties:
+        change_summary:
+          type: [string, 'null']
+        file:
+          type: string
+          format: binary
+    DocumentVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - memory_object_id
+        - version_number
+        - file_name
+        - file_type
+        - content_hash
+        - size_bytes
+        - created_by_user_id
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        version_number:
+          type: integer
+          minimum: 1
+        file_name:
+          type: string
+        file_type:
+          type: string
+        content_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        created_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        change_summary:
+          type: [string, 'null']
+    MemoryObject:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - title
+        - project_id
+        - author_user_id
+        - keywords
+        - status
+        - sensitivity_level
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        type:
+          $ref: '#/components/schemas/MemoryObjectType'
+        title:
+          type: string
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        current_version_id:
+          $ref: '#/components/schemas/NullableUuid'
+        current_version:
+          oneOf:
+            - $ref: '#/components/schemas/DocumentVersion'
+            - type: 'null'
+        author_user_id:
+          $ref: '#/components/schemas/Uuid'
+        summary:
+          type: [string, 'null']
+        keywords:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/MemoryObjectStatus'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        archived_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+    MemoryObjectSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - type
+        - title
+        - project_id
+        - keywords
+        - status
+        - sensitivity_level
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        type:
+          $ref: '#/components/schemas/MemoryObjectType'
+        title:
+          type: string
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        summary:
+          type: [string, 'null']
+        keywords:
+          type: array
+          items:
+            type: string
+        status:
+          $ref: '#/components/schemas/MemoryObjectStatus'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    MemoryObjectPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MemoryObjectSummary'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    TaskCreate:
+      type: object
+      additionalProperties: false
+      required: [project_id, title, user_request]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+          minLength: 1
+        user_request:
+          type: string
+          minLength: 1
+    Task:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - project_id
+        - created_by_user_id
+        - title
+        - user_request
+        - status
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        created_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        user_request:
+          type: string
+        status:
+          $ref: '#/components/schemas/TaskStatus'
+        result_memory_object_id:
+          $ref: '#/components/schemas/NullableUuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        completed_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+    TaskContextSearchRequest:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 1
+        types:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/MemoryObjectType'
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 20
+    TaskContextCandidate:
+      type: object
+      additionalProperties: false
+      required: [memory_object_id, title, reason, sensitivity_level]
+      properties:
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        summary:
+          type: [string, 'null']
+        reason:
+          type: string
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+    TaskContextSearchResponse:
+      type: object
+      additionalProperties: false
+      required: [task_id, candidates]
+      properties:
+        task_id:
+          $ref: '#/components/schemas/Uuid'
+        candidates:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskContextCandidate'
+    TaskTimelineItem:
+      type: object
+      additionalProperties: false
+      required: [kind, occurred_at, resource_type, resource_id, summary]
+      properties:
+        kind:
+          type: string
+          enum: [audit_event, agent_run, ai_result, decision]
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        resource_type:
+          type: string
+        resource_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          type: [string, 'null']
+        summary:
+          type: string
+    TaskTimelinePage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TaskTimelineItem'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    AgentRunContextInput:
+      type: object
+      additionalProperties: false
+      required: [memory_object_id, document_version_id, access_reason]
+      properties:
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        document_version_id:
+          $ref: '#/components/schemas/Uuid'
+        access_reason:
+          type: string
+          minLength: 1
+    AgentRunCreate:
+      type: object
+      additionalProperties: false
+      required: [agent_type, purpose, instructions, context]
+      properties:
+        agent_type:
+          type: string
+          minLength: 1
+          description: Логическая роль агента, не название конкретного провайдера.
+        purpose:
+          type: string
+          minLength: 1
+        instructions:
+          type: string
+          minLength: 1
+        context:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/AgentRunContextInput'
+    AgentRun:
+      type: object
+      additionalProperties: false
+      allOf:
+        - if:
+            properties:
+              deployment_class:
+                const: external
+            required: [deployment_class]
+          then:
+            required: [provider_data_profile_version]
+            properties:
+              provider_data_profile_version:
+                type: string
+                minLength: 1
+        - if:
+            properties:
+              status:
+                enum: [queued, running, completed]
+            required: [status]
+          then:
+            required:
+              - context_set_hash
+              - request_fingerprint
+              - dispatched_at
+              - deadline_at
+            properties:
+              context_set_hash:
+                $ref: '#/components/schemas/Sha256Hash'
+              request_fingerprint:
+                $ref: '#/components/schemas/Sha256Hash'
+              dispatched_at:
+                $ref: '#/components/schemas/Timestamp'
+              deadline_at:
+                $ref: '#/components/schemas/Timestamp'
+        - if:
+            properties:
+              status:
+                enum: [running, completed]
+            required: [status]
+          then:
+            required: [started_at]
+            properties:
+              started_at:
+                $ref: '#/components/schemas/Timestamp'
+        - if:
+            properties:
+              status:
+                enum: [completed, failed, cancelled]
+            required: [status]
+          then:
+            required: [finished_at]
+            properties:
+              finished_at:
+                $ref: '#/components/schemas/Timestamp'
+        - if:
+            properties:
+              status:
+                const: failed
+            required: [status]
+          then:
+            required: [error_message]
+            properties:
+              error_message:
+                type: string
+                minLength: 1
+      required:
+        - id
+        - task_id
+        - project_id
+        - agent_type
+        - provider
+        - purpose
+        - status
+        - requested_by_user_id
+        - deployment_class
+        - origin_request_id
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        task_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        agent_type:
+          type: string
+        provider:
+          type: string
+        model:
+          type: [string, 'null']
+        purpose:
+          type: string
+        status:
+          $ref: '#/components/schemas/AgentRunStatus'
+        requested_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        provider_data_profile_version:
+          type: [string, 'null']
+        deployment_class:
+          $ref: '#/components/schemas/DeploymentClass'
+        context_set_hash:
+          oneOf:
+            - $ref: '#/components/schemas/Sha256Hash'
+            - type: 'null'
+        origin_request_id:
+          $ref: '#/components/schemas/Uuid'
+          description: '`X-Request-Id` исходного запроса создания запуска.'
+        request_fingerprint:
+          oneOf:
+            - $ref: '#/components/schemas/Sha256Hash'
+            - type: 'null'
+          description: Хеш неизменяемого dispatch envelope Agent Gateway.
+        dispatched_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        deadline_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        started_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        finished_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        error_message:
+          type: [string, 'null']
+          description: Безопасное для клиента сообщение без prompt и provider payload.
+    AgentRunResult:
+      type: object
+      additionalProperties: false
+      oneOf:
+        - properties:
+            saved_memory_object_id:
+              type: 'null'
+            saved_at:
+              type: 'null'
+        - required: [saved_memory_object_id, saved_at]
+          properties:
+            saved_memory_object_id:
+              $ref: '#/components/schemas/Uuid'
+            saved_at:
+              $ref: '#/components/schemas/Timestamp'
+      required:
+        - id
+        - agent_run_id
+        - project_id
+        - content
+        - content_type
+        - content_hash
+        - sensitivity_level
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        content:
+          type: string
+          description: Содержимое, прочитанное Director API из Document Store.
+        content_type:
+          type: string
+        content_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+          description: Максимальный уровень чувствительности исходного контекста.
+        output_summary:
+          type: [string, 'null']
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        saved_memory_object_id:
+          $ref: '#/components/schemas/NullableUuid'
+        saved_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+    AgentResultSaveRequest:
+      type: object
+      additionalProperties: false
+      required: [title]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        summary:
+          type: [string, 'null']
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        keywords:
+          type: array
+          uniqueItems: true
+          default: []
+          items:
+            type: string
+            minLength: 1
+        relationships:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/RelationshipRef'
+
+    RelationshipRef:
+      type: object
+      additionalProperties: false
+      required: [target_type, target_id, relation_type]
+      properties:
+        target_type:
+          $ref: '#/components/schemas/RelationshipEndpointType'
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        relation_type:
+          $ref: '#/components/schemas/RelationshipType'
+        description:
+          type: [string, 'null']
+
+    DecisionCreate:
+      type: object
+      additionalProperties: false
+      required: [project_id, title, decision_text]
+      properties:
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        title:
+          type: string
+          minLength: 1
+        decision_text:
+          type: string
+          minLength: 1
+        rationale:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/DecisionCreateStatus'
+        sensitivity_level:
+          allOf:
+            - $ref: '#/components/schemas/SensitivityLevel'
+          default: internal
+        relationships:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/RelationshipRef'
+    Decision:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - memory_object_id
+        - project_id
+        - title
+        - decision_text
+        - status
+        - sensitivity_level
+        - created_at
+        - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        topic_id:
+          $ref: '#/components/schemas/NullableUuid'
+        title:
+          type: string
+        decision_text:
+          type: string
+        rationale:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/DecisionStatus'
+        supersedes_decision_id:
+          $ref: '#/components/schemas/NullableUuid'
+        decided_by_user_id:
+          $ref: '#/components/schemas/NullableUuid'
+        decided_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    DecisionSupersedeRequest:
+      type: object
+      additionalProperties: false
+      required: [title, decision_text]
+      properties:
+        title:
+          type: string
+          minLength: 1
+        decision_text:
+          type: string
+          minLength: 1
+        rationale:
+          type: [string, 'null']
+        sensitivity_level:
+          allOf:
+            - $ref: '#/components/schemas/SensitivityLevel'
+          default: internal
+        relationships:
+          type: array
+          default: []
+          items:
+            $ref: '#/components/schemas/RelationshipRef'
+    DecisionSupersedeResponse:
+      type: object
+      additionalProperties: false
+      required: [superseded_decision, new_decision]
+      properties:
+        superseded_decision:
+          $ref: '#/components/schemas/Decision'
+        new_decision:
+          $ref: '#/components/schemas/Decision'
+
+    AuditActorType:
+      type: string
+      enum: [user, director, agent, service, system]
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - actor_type
+        - action
+        - metadata
+        - created_at
+        - request_id
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        actor_type:
+          $ref: '#/components/schemas/AuditActorType'
+        actor_id:
+          $ref: '#/components/schemas/NullableUuid'
+        action:
+          type: string
+        target_type:
+          type: [string, 'null']
+        target_id:
+          $ref: '#/components/schemas/NullableUuid'
+        project_id:
+          $ref: '#/components/schemas/NullableUuid'
+        metadata:
+          type: object
+          additionalProperties: true
+          description: Не содержит prompt, полный документ, ответ AI или секрет.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        ip_address:
+          oneOf:
+            - type: string
+              format: ipv4
+            - type: string
+              format: ipv6
+            - type: 'null'
+        authorization_decision_id:
+          $ref: '#/components/schemas/NullableUuid'
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditEvent'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    Confirmation:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - operation
+        - target_type
+        - target_id
+        - project_id
+        - requested_by_user_id
+        - authorization_decision_id
+        - request_id
+        - status
+        - payload_hash
+        - summary
+        - created_at
+        - expires_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        operation:
+          $ref: '#/components/schemas/ConfirmationOperation'
+        target_type:
+          type: string
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        requested_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        decided_by_user_id:
+          $ref: '#/components/schemas/NullableUuid'
+        authorization_decision_id:
+          $ref: '#/components/schemas/Uuid'
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/ConfirmationStatus'
+        payload_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        summary:
+          type: string
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        decided_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        consumed_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+
+    ConfirmationPage:
+      type: object
+      additionalProperties: false
+      required: [items, next_cursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Confirmation'
+        next_cursor:
+          $ref: '#/components/schemas/NullableCursor'
+
+    SessionCreate:
+      type: object
+      additionalProperties: false
+      required: [login, password]
+      properties:
+        login:
+          type: string
+          minLength: 1
+          maxLength: 256
+        password:
+          type: string
+          minLength: 1
+          maxLength: 1024
+          writeOnly: true
+
+    UserSession:
+      type: object
+      additionalProperties: false
+      required: [id, user_id, authentication_method, created_at, expires_at]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        authentication_method:
+          type: string
+          minLength: 1
+          maxLength: 256
+          examples: [local_password, 'oidc:corporate']
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    IssuedUserSession:
+      type: object
+      additionalProperties: false
+      required: [access_token, token_type, session]
+      properties:
+        access_token:
+          type: string
+          pattern: '^[A-Za-z0-9_-]{43}$'
+        token_type:
+          type: string
+          const: Bearer
+        session:
+          $ref: '#/components/schemas/UserSession'
+
+    ErrorCode:
+      type: string
+      enum:
+        - validation_error
+        - unauthorized
+        - access_denied
+        - not_found
+        - conflict
+        - requires_confirmation
+        - task_not_ready
+        - agent_route_unavailable
+        - session_not_available
+        - csrf_check_failed
+        - oidc_transaction_invalid
+        - oidc_authentication_failed
+        - oidc_provider_unavailable
+        - identity_not_provisioned
+        - agent_run_failed
+        - payload_too_large
+        - rate_limited
+        - internal_error
+    ErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, request_id]
+      properties:
+        code:
+          $ref: '#/components/schemas/ErrorCode'
+        message:
+          type: string
+        details:
+          type: object
+          additionalProperties: true
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+    ErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ErrorObject'
+    RequiresConfirmationDetails:
+      type: object
+      additionalProperties: false
+      required: [confirmation_id, target_type, target_id, payload_hash, expires_at]
+      properties:
+        confirmation_id:
+          $ref: '#/components/schemas/Uuid'
+        target_type:
+          type: string
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        payload_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    RequiresConfirmationErrorObject:
+      type: object
+      additionalProperties: false
+      required: [code, message, details, request_id]
+      properties:
+        code:
+          type: string
+          const: requires_confirmation
+        message:
+          type: string
+        details:
+          $ref: '#/components/schemas/RequiresConfirmationDetails'
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+    RequiresConfirmationErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/RequiresConfirmationErrorObject'

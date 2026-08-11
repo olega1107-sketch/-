@@ -1,0 +1,24 @@
+proxy_pass https://director_public_api;
+proxy_http_version 1.1;
+proxy_set_header Connection "";
+
+proxy_set_header Host ${DIRECTOR_PUBLIC_HOST};
+proxy_set_header X-Real-IP $remote_addr;
+proxy_set_header X-Forwarded-For $remote_addr;
+proxy_set_header X-Forwarded-Host ${DIRECTOR_PUBLIC_HOST};
+proxy_set_header X-Forwarded-Port ${DIRECTOR_PUBLIC_PORT};
+proxy_set_header X-Forwarded-Proto https;
+proxy_set_header Forwarded "";
+proxy_set_header X-Client-Cert "";
+
+proxy_ssl_server_name on;
+proxy_ssl_name ${DIRECTOR_UPSTREAM_TLS_NAME};
+proxy_ssl_trusted_certificate /run/secrets/director-upstream-ca.crt;
+proxy_ssl_verify on;
+proxy_ssl_verify_depth 3;
+
+proxy_connect_timeout 5s;
+proxy_send_timeout 60s;
+proxy_read_timeout 60s;
+proxy_request_buffering off;
+proxy_hide_header Server;

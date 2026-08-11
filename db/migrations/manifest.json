@@ -1,0 +1,16 @@
+{
+  "format_version": 1,
+  "migrations": [
+    {
+      "version": 1,
+      "id": "0001_schema_v1",
+      "name": "Initial Director schema v1",
+      "change": "schema_v1",
+      "phase": "baseline",
+      "file": "../schema-v1.sql",
+      "adoption_verify_file": "0001_schema_v1.verify.sql",
+      "transaction": "self",
+      "checksum": "sha256:61c3891ea3f9e96d41d7565a7b0fb7a129f5ecd9b6ee929e9b7256f615e90ac6"
+    }
+  ]
+}

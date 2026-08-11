@@ -1,0 +1,101 @@
+worker_processes auto;
+error_log /dev/stderr warn;
+pid /tmp/nginx.pid;
+
+events {
+    worker_connections 1024;
+}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+
+    # $uri deliberately excludes query parameters such as OIDC code and state.
+    log_format safe '$remote_addr $status $body_bytes_sent '
+                    '"$request_method $uri $server_protocol" $request_time';
+    access_log /dev/stdout safe;
+
+    server_tokens off;
+    sendfile on;
+    keepalive_timeout 30s;
+    client_body_timeout 30s;
+    client_header_timeout 15s;
+    send_timeout 60s;
+    client_body_temp_path /tmp/dirizhor-nginx/client-body 1 2;
+    proxy_temp_path /tmp/dirizhor-nginx/proxy 1 2;
+
+    limit_req_status 429;
+    limit_req_zone $binary_remote_addr zone=oidc_start:10m rate=10r/m;
+    limit_req_zone $binary_remote_addr zone=oidc_callback:10m rate=60r/m;
+    limit_req_zone $binary_remote_addr zone=local_login:10m rate=5r/m;
+
+    upstream director_public_api {
+        server ${DIRECTOR_UPSTREAM_HOST}:${DIRECTOR_UPSTREAM_PORT};
+        keepalive 32;
+    }
+
+    server {
+        listen ${PUBLIC_LISTEN_PORT} ssl;
+        http2 on;
+        server_name ${DIRECTOR_PUBLIC_HOST};
+        root /srv/dirizhor-ui;
+        index index.html;
+
+        if ($host != "${DIRECTOR_PUBLIC_HOST}") { return 444; }
+
+        ssl_certificate /run/secrets/public-tls.crt;
+        ssl_certificate_key /run/secrets/public-tls.key;
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_session_cache shared:director_tls:10m;
+        ssl_session_timeout 1h;
+        ssl_session_tickets off;
+
+        client_max_body_size ${DIRECTOR_MAX_BODY_SIZE};
+
+        include ${DIRIZHOR_NGINX_INCLUDE_DIR}/security-headers.conf;
+
+        location = /health/live { return 404; }
+        location = /health/ready { return 404; }
+
+        error_page 429 = @rate_limited;
+        location @rate_limited {
+            internal;
+            default_type application/json;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/security-headers.conf;
+            add_header Cache-Control "no-store" always;
+            return 429 '{"error":{"code":"rate_limited","message":"Too many authentication requests.","retryable":true}}';
+        }
+
+        location = /api/v1/auth/oidc/start {
+            limit_req zone=oidc_start burst=3 nodelay;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/director-proxy.conf;
+        }
+
+        location = /api/v1/auth/oidc/callback {
+            error_log /dev/null crit;
+            limit_req zone=oidc_callback burst=20 nodelay;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/director-proxy.conf;
+        }
+
+        location = /api/v1/auth/sessions {
+            limit_req zone=local_login burst=2 nodelay;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/director-proxy.conf;
+        }
+
+        location ^~ /api/ {
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/director-proxy.conf;
+        }
+
+        location ~* ^/assets/[A-Za-z0-9._-]+\.(?:css|js|png|jpg|jpeg|webp|woff2)$ {
+            try_files $uri =404;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/security-headers.conf;
+            add_header Cache-Control "public, max-age=31536000, immutable";
+        }
+
+        location / {
+            try_files $uri $uri/ /index.html;
+            include ${DIRIZHOR_NGINX_INCLUDE_DIR}/security-headers.conf;
+            add_header Cache-Control "no-cache";
+        }
+    }
+}

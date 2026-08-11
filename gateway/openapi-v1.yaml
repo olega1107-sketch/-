@@ -1,0 +1,954 @@
+openapi: 3.1.0
+jsonSchemaDialect: https://spec.openapis.org/oas/3.1/dialect/base
+
+info:
+  title: Agent Gateway Internal Protocol
+  version: 0.1.0
+  summary: Внутренний протокол Director API и Agent Gateway
+  description: |
+    Статус: архитектурный черновик v1.
+    Протокол фиксирует двусторонний внутренний HTTPS-обмен:
+    Director API запускает и отменяет agent run, а Agent Gateway одноразово
+    получает замороженный context bundle и возвращает события.
+
+servers:
+  - url: https://agent-gateway.internal
+    description: Внутренний ingress Agent Gateway
+
+security:
+  - mutualTLS: []
+    serviceBearer: []
+
+tags:
+  - name: Gateway Ingress
+    description: Команды Director API, которые принимает Agent Gateway.
+  - name: Director Services
+    description: Фиксированные внутренние endpoint Director API для Gateway.
+
+paths:
+  /internal/v1/agent-runs/{agent_run_id}:execute:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    post:
+      tags: [Gateway Ingress]
+      summary: Принять замороженный agent run к исполнению
+      description: |
+        Вызов идемпотентен по `agent_run_id` и `request_fingerprint`.
+        Тот же fingerprint возвращает текущую receipt; другой fingerprint
+        для того же run возвращает `409`.
+        Gateway пересчитывает fingerprint из path и body.
+        До ответа `202` Gateway redeem-ит capability и надежно помещает
+        проверенный context bundle в защищенный временный spool. Provider
+        вызывается асинхронно уже после ответа.
+      operationId: executeAgentRun
+      x-caller-service: director-api
+      x-idempotency-key: agent_run_id
+      x-idempotency-conflict-fields: [request_fingerprint]
+      x-secret-headers: [X-Agent-Capability]
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+        - $ref: '#/components/parameters/AgentCapabilityHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentExecutionRequest'
+      responses:
+        '202':
+          description: Запуск принят или уже был принят ранее
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentExecutionReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /internal/v1/agent-runs/{agent_run_id}:cancel:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    post:
+      tags: [Gateway Ingress]
+      summary: Запросить отмену agent run
+      description: |
+        Отмена best effort. Gateway прекращает локальную работу, пытается
+        отменить provider request и всегда завершает сценарий terminal event.
+        Первый принятый reason сохраняется; последующие cancel возвращают
+        текущую receipt независимо от reason.
+      operationId: cancelAgentRun
+      x-caller-service: director-api
+      x-idempotency-key: agent_run_id
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AgentCancellationRequest'
+      responses:
+        '202':
+          description: Запрос на отмену принят
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AgentCancellationReceipt'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /internal/v1/agent-runs/{agent_run_id}/context-bundle:redeem:
+    servers:
+      - url: https://director-api.internal
+        description: Внутренний ingress Director API
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    post:
+      tags: [Director Services]
+      summary: Одноразово получить замороженный context bundle
+      description: |
+        Director API проверяет capability, точный run, action
+        `context_bundle.read`, срок, `context_set_hash` и все ресурсы.
+        После успешной сборки capability атомарно помечается used вместе с
+        audit event `agent_context.redeemed`.
+        `agent_run_id` в path должен совпасть с run, связанным с capability.
+      operationId: redeemAgentContextBundle
+      x-caller-service: agent-gateway
+      x-capability-action: context_bundle.read
+      x-consumption: exactly-once-token
+      parameters:
+        - $ref: '#/components/parameters/AgentCapabilityHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContextBundleRedeemRequest'
+      responses:
+        '200':
+          description: Точный ordered context bundle
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContextBundle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '410':
+          $ref: '#/components/responses/Gone'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+  /internal/v1/agent-runs/{agent_run_id}/events:
+    servers:
+      - url: https://director-api.internal
+        description: Внутренний ingress Director API
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/AgentRunIdPath'
+    post:
+      tags: [Director Services]
+      summary: Зафиксировать событие Agent Gateway
+      description: |
+        `event_id` становится `audit_events.id`. Повтор с тем же
+        `event_hash` возвращает `204`; другой payload для того же ID — `409`.
+        Director пересчитывает event hash без поля `event_hash`.
+        Gateway должен получить `204` на `agent_run.started` до вызова provider.
+        Director также сверяет `agent_run_id` в path и body.
+      operationId: recordAgentGatewayEvent
+      x-caller-service: agent-gateway
+      x-idempotency-key: event_id
+      x-idempotency-conflict-fields: [event_hash]
+      x-event-order:
+        - queued -> agent_run.started
+        - queued -> agent_run.failed
+        - running -> one terminal event
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GatewayEvent'
+      responses:
+        '204':
+          description: Событие применено или уже было применено
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/Unavailable'
+
+components:
+  securitySchemes:
+    mutualTLS:
+      type: mutualTLS
+      description: mTLS или эквивалентная workload identity внутреннего сервиса.
+    serviceBearer:
+      type: http
+      scheme: bearer
+      bearerFormat: internal-service-token
+      description: Короткоживущий service token; не заменяет mTLS.
+
+  parameters:
+    RequestIdHeader:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: UUID текущего межсервисного вызова.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    AgentRunIdPath:
+      name: agent_run_id
+      in: path
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: |
+        UUID `agent_run_id` из path. Получатель дополнительно сверяет поля,
+        перечисленные в `x-idempotency-conflict-fields` операции.
+      schema:
+        $ref: '#/components/schemas/Uuid'
+    AgentCapabilityHeader:
+      name: X-Agent-Capability
+      in: header
+      required: true
+      description: |
+        Одноразовый непрозрачный секрет. Запрещено помещать в логи,
+        traces, audit metadata и durable queue payload.
+      schema:
+        type: string
+        minLength: 32
+        writeOnly: true
+
+  headers:
+    RequestId:
+      description: UUID текущего межсервисного вызова.
+      required: true
+      schema:
+        $ref: '#/components/schemas/Uuid'
+
+  responses:
+    BadRequest:
+      description: Нарушен транспортный контракт.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Unauthorized:
+      description: Service identity или token не подтверждены.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Forbidden:
+      description: Сервис или capability не имеют права на операцию.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    NotFound:
+      description: Agent run не существует или не должен раскрываться.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Conflict:
+      description: Fingerprint, event order или текущее состояние не совпадают.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Gone:
+      description: Capability истекла, отозвана или уже использована.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    PayloadTooLarge:
+      description: Context bundle или result превышают настроенный лимит.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Unprocessable:
+      description: Контракт валиден, но provider, policy или payload не поддерживаются.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    RateLimited:
+      description: Внутренний или provider rate limit.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: Число секунд до следующей попытки.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    InternalError:
+      description: Внутренняя ошибка без раскрытия prompt, контекста или provider payload.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+    Unavailable:
+      description: Внутренний сервис или provider временно недоступны.
+      headers:
+        X-Request-Id:
+          $ref: '#/components/headers/RequestId'
+        Retry-After:
+          description: Число секунд до следующей попытки.
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ProtocolErrorResponse'
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    Sha256Hash:
+      type: string
+      pattern: '^sha256:[0-9a-f]{64}$'
+    NullableString:
+      type: [string, 'null']
+    ProtocolVersion:
+      type: string
+      const: '1.0'
+    SensitivityLevel:
+      type: string
+      enum: [public, internal, confidential, restricted]
+    DeploymentClass:
+      type: string
+      enum: [internal, external]
+
+    AgentExecutionRequest:
+      type: object
+      additionalProperties: false
+      allOf:
+        - if:
+            properties:
+              deployment_class:
+                const: external
+            required: [deployment_class]
+          then:
+            required: [provider_data_profile_version]
+            properties:
+              provider_data_profile_version:
+                type: string
+                minLength: 1
+      required:
+        - protocol_version
+        - project_id
+        - task_id
+        - origin_request_id
+        - request_fingerprint
+        - agent_type
+        - provider
+        - purpose
+        - instructions
+        - deployment_class
+        - context_set_hash
+        - context_item_count
+        - max_context_sensitivity
+        - dispatched_at
+        - deadline_at
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        task_id:
+          $ref: '#/components/schemas/Uuid'
+        origin_request_id:
+          $ref: '#/components/schemas/Uuid'
+        request_fingerprint:
+          $ref: '#/components/schemas/Sha256Hash'
+        agent_type:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+          minLength: 1
+        model:
+          $ref: '#/components/schemas/NullableString'
+        purpose:
+          type: string
+          minLength: 1
+        instructions:
+          type: string
+          minLength: 1
+        deployment_class:
+          $ref: '#/components/schemas/DeploymentClass'
+        provider_data_profile_version:
+          $ref: '#/components/schemas/NullableString'
+        context_set_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        context_item_count:
+          type: integer
+          minimum: 1
+        max_context_sensitivity:
+          $ref: '#/components/schemas/SensitivityLevel'
+        dispatched_at:
+          $ref: '#/components/schemas/Timestamp'
+        deadline_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    GatewayReceiptState:
+      type: string
+      enum: [accepted, already_accepted, started, terminal]
+    AgentExecutionReceipt:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version
+        - agent_run_id
+        - request_fingerprint
+        - gateway_state
+        - accepted_at
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        request_fingerprint:
+          $ref: '#/components/schemas/Sha256Hash'
+        gateway_state:
+          $ref: '#/components/schemas/GatewayReceiptState'
+        accepted_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    CancellationReasonCode:
+      type: string
+      enum:
+        - user_requested
+        - task_cancelled
+        - authorization_revoked
+        - deadline_exceeded
+        - service_shutdown
+    AgentCancellationRequest:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, reason_code, requested_at]
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        reason_code:
+          $ref: '#/components/schemas/CancellationReasonCode'
+        reason:
+          type: [string, 'null']
+          maxLength: 500
+        requested_at:
+          $ref: '#/components/schemas/Timestamp'
+    CancellationReceiptState:
+      type: string
+      enum: [accepted, already_cancelled, terminal]
+    AgentCancellationReceipt:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, agent_run_id, gateway_state, accepted_at]
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        gateway_state:
+          $ref: '#/components/schemas/CancellationReceiptState'
+        accepted_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    ContextBundleRedeemRequest:
+      type: object
+      additionalProperties: false
+      required: [protocol_version, request_fingerprint, expected_context_set_hash]
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        request_fingerprint:
+          $ref: '#/components/schemas/Sha256Hash'
+        expected_context_set_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+
+    ContentEncoding:
+      type: string
+      enum: [utf-8, base64]
+    ContextItem:
+      type: object
+      additionalProperties: false
+      required:
+        - position
+        - memory_object_id
+        - document_version_id
+        - file_name
+        - media_type
+        - size_bytes
+        - content_encoding
+        - content
+        - content_hash
+        - sensitivity_level
+        - access_reason
+      properties:
+        position:
+          type: integer
+          minimum: 1
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        document_version_id:
+          $ref: '#/components/schemas/Uuid'
+        file_name:
+          type: string
+          minLength: 1
+        media_type:
+          type: string
+          minLength: 1
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        content_encoding:
+          $ref: '#/components/schemas/ContentEncoding'
+        content:
+          type: string
+          description: UTF-8 text or base64 of the exact immutable version bytes.
+        content_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+          description: SHA-256 исходных bytes до base64; `size_bytes` измеряет те же bytes.
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        access_reason:
+          type: string
+          minLength: 1
+    ContextBundle:
+      type: object
+      additionalProperties: false
+      required:
+        - protocol_version
+        - agent_run_id
+        - project_id
+        - request_fingerprint
+        - context_set_hash
+        - item_count
+        - max_sensitivity_level
+        - items
+        - assembled_at
+        - expires_at
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        request_fingerprint:
+          $ref: '#/components/schemas/Sha256Hash'
+        context_set_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        item_count:
+          type: integer
+          minimum: 1
+          description: Должно точно совпадать с длиной массива `items`.
+        max_sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        items:
+          type: array
+          minItems: 1
+          description: Позиции уникальны, непрерывны и возрастают от 1 до `item_count`.
+          items:
+            $ref: '#/components/schemas/ContextItem'
+        assembled_at:
+          $ref: '#/components/schemas/Timestamp'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+
+    GatewayEventType:
+      type: string
+      enum:
+        - agent_run.started
+        - agent_run.completed
+        - agent_run.failed
+        - agent_run.cancelled
+    GatewayEventBase:
+      type: object
+      required:
+        - protocol_version
+        - event_id
+        - event_type
+        - event_hash
+        - agent_run_id
+        - project_id
+        - origin_request_id
+        - request_fingerprint
+        - occurred_at
+      properties:
+        protocol_version:
+          $ref: '#/components/schemas/ProtocolVersion'
+        event_id:
+          $ref: '#/components/schemas/Uuid'
+        event_type:
+          $ref: '#/components/schemas/GatewayEventType'
+        event_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        project_id:
+          $ref: '#/components/schemas/Uuid'
+        origin_request_id:
+          $ref: '#/components/schemas/Uuid'
+        request_fingerprint:
+          $ref: '#/components/schemas/Sha256Hash'
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+    AgentRunStartedEvent:
+      allOf:
+        - $ref: '#/components/schemas/GatewayEventBase'
+        - type: object
+          required:
+            - event_type
+            - provider
+            - adapter_version
+            - context_set_hash
+          properties:
+            event_type:
+              type: string
+              const: agent_run.started
+            provider:
+              type: string
+              minLength: 1
+            model:
+              $ref: '#/components/schemas/NullableString'
+            adapter_version:
+              type: string
+              minLength: 1
+            context_set_hash:
+              $ref: '#/components/schemas/Sha256Hash'
+      unevaluatedProperties: false
+
+    FinishReason:
+      type: string
+      enum: [stop, length, content_filter, other]
+    ProviderUsage:
+      type: object
+      additionalProperties: false
+      properties:
+        input_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+        output_tokens:
+          type: integer
+          format: int64
+          minimum: 0
+    GatewayResult:
+      type: object
+      additionalProperties: false
+      required:
+        - content
+        - content_type
+        - content_hash
+        - size_bytes
+        - sensitivity_level
+        - finish_reason
+      properties:
+        content:
+          type: string
+          description: Только финальный ответ; hidden reasoning и provider trace запрещены.
+        content_type:
+          type: string
+          enum: [text/plain, text/markdown, application/json]
+        content_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+          description: SHA-256 точных UTF-8 bytes поля `content`.
+        size_bytes:
+          type: integer
+          format: int64
+          minimum: 0
+        output_summary:
+          $ref: '#/components/schemas/NullableString'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        finish_reason:
+          $ref: '#/components/schemas/FinishReason'
+        usage:
+          $ref: '#/components/schemas/ProviderUsage'
+    AgentRunCompletedEvent:
+      allOf:
+        - $ref: '#/components/schemas/GatewayEventBase'
+        - type: object
+          required:
+            - event_type
+            - provider
+            - adapter_version
+            - provider_request_id
+            - result
+          properties:
+            event_type:
+              type: string
+              const: agent_run.completed
+            provider:
+              type: string
+              minLength: 1
+            model:
+              $ref: '#/components/schemas/NullableString'
+            adapter_version:
+              type: string
+              minLength: 1
+            provider_request_id:
+              $ref: '#/components/schemas/NullableString'
+            result:
+              $ref: '#/components/schemas/GatewayResult'
+      unevaluatedProperties: false
+
+    GatewayFailureCode:
+      type: string
+      enum:
+        - capability_invalid
+        - capability_expired
+        - capability_used
+        - context_hash_mismatch
+        - context_too_large
+        - unsupported_agent
+        - unsupported_provider
+        - policy_violation
+        - provider_rate_limited
+        - provider_timeout
+        - provider_unavailable
+        - provider_rejected
+        - provider_outcome_unknown
+        - unsupported_tool_call
+        - output_too_large
+        - normalization_failed
+        - internal_error
+    FailurePhase:
+      type: string
+      enum: [admission, context, provider, normalization, delivery]
+    GatewayFailure:
+      type: object
+      additionalProperties: false
+      required: [code, phase, message, retryable]
+      properties:
+        code:
+          $ref: '#/components/schemas/GatewayFailureCode'
+        phase:
+          $ref: '#/components/schemas/FailurePhase'
+        message:
+          type: string
+          minLength: 1
+          description: Санитизировано; без prompt, context и provider response body.
+        retryable:
+          type: boolean
+        provider_status:
+          type: [integer, 'null']
+          minimum: 100
+          maximum: 599
+        retry_after_seconds:
+          type: [integer, 'null']
+          minimum: 1
+    AgentRunFailedEvent:
+      allOf:
+        - $ref: '#/components/schemas/GatewayEventBase'
+        - type: object
+          required:
+            - event_type
+            - adapter_version
+            - provider_request_id
+            - failure
+          properties:
+            event_type:
+              type: string
+              const: agent_run.failed
+            provider:
+              $ref: '#/components/schemas/NullableString'
+            model:
+              $ref: '#/components/schemas/NullableString'
+            adapter_version:
+              $ref: '#/components/schemas/NullableString'
+            provider_request_id:
+              $ref: '#/components/schemas/NullableString'
+            failure:
+              $ref: '#/components/schemas/GatewayFailure'
+      unevaluatedProperties: false
+
+    AgentRunCancelledEvent:
+      allOf:
+        - $ref: '#/components/schemas/GatewayEventBase'
+        - type: object
+          required: [event_type, reason_code, provider_request_id]
+          properties:
+            event_type:
+              type: string
+              const: agent_run.cancelled
+            reason_code:
+              $ref: '#/components/schemas/CancellationReasonCode'
+            provider_request_id:
+              $ref: '#/components/schemas/NullableString'
+      unevaluatedProperties: false
+
+    GatewayEvent:
+      oneOf:
+        - $ref: '#/components/schemas/AgentRunStartedEvent'
+        - $ref: '#/components/schemas/AgentRunCompletedEvent'
+        - $ref: '#/components/schemas/AgentRunFailedEvent'
+        - $ref: '#/components/schemas/AgentRunCancelledEvent'
+      discriminator:
+        propertyName: event_type
+        mapping:
+          agent_run.started: '#/components/schemas/AgentRunStartedEvent'
+          agent_run.completed: '#/components/schemas/AgentRunCompletedEvent'
+          agent_run.failed: '#/components/schemas/AgentRunFailedEvent'
+          agent_run.cancelled: '#/components/schemas/AgentRunCancelledEvent'
+
+    ProtocolErrorCode:
+      type: string
+      enum:
+        - validation_error
+        - unauthorized_service
+        - access_denied
+        - not_found
+        - idempotency_conflict
+        - invalid_state
+        - capability_invalid
+        - capability_expired
+        - capability_used
+        - context_hash_mismatch
+        - unsupported_agent
+        - unsupported_provider
+        - policy_violation
+        - payload_too_large
+        - rate_limited
+        - unavailable
+        - internal_error
+    ProtocolError:
+      type: object
+      additionalProperties: false
+      required: [code, message, retryable, details, request_id]
+      properties:
+        code:
+          $ref: '#/components/schemas/ProtocolErrorCode'
+        message:
+          type: string
+          minLength: 1
+        retryable:
+          type: boolean
+        details:
+          type: object
+          additionalProperties: true
+          description: Не содержит prompt, context, result, capability или provider body.
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+    ProtocolErrorResponse:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          $ref: '#/components/schemas/ProtocolError'

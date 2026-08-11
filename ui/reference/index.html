@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f4f5f3" />
+    <title>Дирижёр · Подтверждения</title>
+  </head>
+  <body>
+    <div id="app">
+      <section class="auth-view" id="auth-view" aria-labelledby="auth-title">
+        <div class="auth-brand" aria-hidden="true">
+          <div class="brand-mark"><i data-lucide="audio-lines"></i></div>
+          <span>Дирижёр</span>
+        </div>
+        <div class="auth-panel">
+          <div class="auth-heading">
+            <p class="eyebrow">Рабочая среда</p>
+            <h1 id="auth-title">Вход</h1>
+            <p>Используйте корпоративную учётную запись.</p>
+          </div>
+          <a class="button primary sso-submit" id="oidc-login" href="/api/v1/auth/oidc/start">
+            <span>Продолжить через SSO</span><i data-lucide="arrow-right"></i>
+          </a>
+          <p class="form-error" id="auth-error" role="alert" hidden></p>
+          <div class="local-login" id="local-login" hidden>
+            <div class="auth-separator"><span>Локальная учётная запись</span></div>
+            <form class="local-auth-form" id="auth-form">
+              <label>
+                <span>Логин</span>
+                <input name="login" type="text" autocomplete="username" required maxlength="256" />
+              </label>
+              <label>
+                <span>Пароль</span>
+                <input name="password" type="password" autocomplete="current-password" required maxlength="1024" />
+              </label>
+              <button class="button secondary auth-submit" type="submit">
+                <span>Войти локально</span><i data-lucide="arrow-right"></i>
+              </button>
+            </form>
+          </div>
+        </div>
+      </section>
+
+      <div class="workspace" id="workspace" hidden>
+        <aside class="sidebar">
+          <div class="brand">
+            <div class="brand-mark"><i data-lucide="audio-lines"></i></div>
+            <span>Дирижёр</span>
+          </div>
+          <nav aria-label="Основная навигация">
+            <button class="nav-item active" type="button">
+              <i data-lucide="shield-check"></i><span>Подтверждения</span>
+              <span class="nav-count" id="nav-count" hidden></span>
+            </button>
+          </nav>
+          <div class="sidebar-footer">
+            <div class="session-state"><span class="status-dot"></span><span>Сессия активна</span></div>
+            <button class="icon-button" id="logout-button" type="button" aria-label="Выйти" title="Выйти">
+              <i data-lucide="log-out"></i>
+            </button>
+          </div>
+        </aside>
+
+        <main>
+          <header class="topbar">
+            <div class="mobile-brand">
+              <div class="brand-mark"><i data-lucide="audio-lines"></i></div>
+              <span>Дирижёр</span>
+            </div>
+            <div class="project-picker">
+              <span class="project-field-label">Проект</span>
+              <button class="select-shell" id="project-trigger" type="button" aria-label="Выбрать проект" aria-haspopup="listbox">
+                <span id="project-label">Нет доступных проектов</span>
+                <i data-lucide="chevron-down"></i>
+              </button>
+              <select class="native-project-select" id="project-select" aria-label="Проект" tabindex="-1"></select>
+            </div>
+            <div class="topbar-actions">
+              <span class="last-update" id="last-update"></span>
+              <button class="icon-button" id="refresh-button" type="button" aria-label="Обновить" title="Обновить">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+            </div>
+          </header>
+
+          <div class="content">
+            <div class="page-heading">
+              <div>
+                <p class="eyebrow">Контроль операций</p>
+                <h1>Подтверждения</h1>
+              </div>
+              <div class="pending-summary" id="pending-summary">
+                <span class="summary-value">0</span><span>ожидают решения</span>
+              </div>
+            </div>
+
+            <div class="tabs" role="tablist" aria-label="Статус подтверждений">
+              <button class="tab active" role="tab" aria-selected="true" data-status="pending" type="button">Ожидают</button>
+              <button class="tab" role="tab" aria-selected="false" data-status="consumed" type="button">Выполнены</button>
+              <button class="tab" role="tab" aria-selected="false" data-status="rejected" type="button">Отклонены</button>
+            </div>
+
+            <section class="list-region" aria-live="polite" aria-busy="false">
+              <div class="confirmation-list" id="confirmation-list"></div>
+              <div class="empty-state" id="empty-state" hidden>
+                <i data-lucide="check-check"></i>
+                <h2>Очередь пуста</h2>
+                <p>Новых операций для решения нет.</p>
+              </div>
+              <div class="error-state" id="error-state" hidden>
+                <i data-lucide="triangle-alert"></i>
+                <h2>Не удалось загрузить данные</h2>
+                <p id="error-message"></p>
+                <button class="button secondary" id="retry-button" type="button">Повторить</button>
+              </div>
+              <div class="list-footer" id="list-footer" hidden>
+                <button class="button secondary" id="more-button" type="button">
+                  <span>Показать ещё</span><i data-lucide="chevron-down"></i>
+                </button>
+              </div>
+            </section>
+          </div>
+        </main>
+      </div>
+
+      <dialog class="decision-dialog" id="decision-dialog">
+        <form method="dialog">
+          <div class="dialog-icon" id="dialog-icon"><i data-lucide="shield-check"></i></div>
+          <div class="dialog-copy">
+            <p class="eyebrow" id="dialog-eyebrow">Подтверждение</p>
+            <h2 id="dialog-title"></h2>
+            <p id="dialog-summary"></p>
+          </div>
+          <div class="dialog-actions">
+            <button class="button secondary" value="cancel" type="submit">Отмена</button>
+            <button class="button primary" id="dialog-confirm" value="confirm" type="submit">Подтвердить</button>
+          </div>
+        </form>
+      </dialog>
+
+      <div class="toast" id="toast" role="status" hidden></div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

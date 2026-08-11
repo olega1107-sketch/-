@@ -1,0 +1,69 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+import {
+  validateContainerContract,
+  validateDockerfileText,
+  validatePinnedImageReference,
+} from '../scripts/container-preflight.mjs';
+
+const digest = 'a'.repeat(64);
+const validEnvironment = {
+  DIRIZHOR_NODE_BUILD_IMAGE: `registry.invalid/build/node@sha256:${digest}`,
+  DIRIZHOR_NODE_RUNTIME_IMAGE: `registry.invalid/runtime/node@sha256:${digest}`,
+  DIRIZHOR_NGINX_RUNTIME_IMAGE: `registry.invalid/runtime/nginx@sha256:${digest}`,
+  DIRIZHOR_PNPM_VERSION: '11.16.0',
+};
+
+test('repository container contract passes with canonical base references', async () => {
+  const report = await validateContainerContract({ environment: validEnvironment });
+  assert.equal(report.status, 'ok');
+  assert.equal(report.runtime_uid, 10_001);
+  assert.deepEqual(report.dockerfiles, ['director', 'gateway', 'edge']);
+});
+
+test('mutable or malformed base image references are rejected', () => {
+  for (const reference of [
+    'node:latest',
+    'node:22',
+    `NODE@sha256:${digest}`,
+    'node@sha256:short',
+    `node@sha512:${digest}`,
+  ]) {
+    assert.throws(
+      () => validatePinnedImageReference(reference),
+      /canonical SHA-256/,
+    );
+  }
+});
+
+test('pnpm version is exact and cannot float', async () => {
+  await assert.rejects(
+    validateContainerContract({
+      environment: { ...validEnvironment, DIRIZHOR_PNPM_VERSION: 'latest' },
+    }),
+    /must be exactly/,
+  );
+});
+
+test('Dockerfiles reject secret arguments, root users, and direct base tags', () => {
+  const profile = { required: ['USER 10001:10001'] };
+  const base = `# syntax=docker/dockerfile:1.7
+FROM \${NODE_BUILD_IMAGE} AS build
+FROM \${NODE_RUNTIME_IMAGE} AS runtime
+USER 10001:10001
+`;
+  assert.doesNotThrow(() => validateDockerfileText(base, profile));
+  assert.throws(
+    () => validateDockerfileText(`${base}ARG API_TOKEN\n`, profile),
+    /forbidden mutable or privileged/,
+  );
+  assert.throws(
+    () => validateDockerfileText(base.replace('USER 10001:10001', 'USER root'), profile),
+    /forbidden mutable or privileged/,
+  );
+  assert.throws(
+    () => validateDockerfileText(base.replace('\${NODE_BUILD_IMAGE}', 'node:latest'), profile),
+    /approved image arguments/,
+  );
+});

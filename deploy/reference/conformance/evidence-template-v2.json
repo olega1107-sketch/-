@@ -1,0 +1,56 @@
+{
+  "schema_version": 1,
+  "registry_version": 2,
+  "execution_id": "replace-change-id",
+  "environment": "replace-target-environment",
+  "started_at": "1970-01-01T00:00:00.000Z",
+  "completed_at": "1970-01-01T00:00:00.000Z",
+  "artifacts": {
+    "director_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "gateway_image_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "ui_artifact_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "migration_manifest_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "target": {
+    "public_origin": "https://director.example.com",
+    "director_internal_dns": "director.internal",
+    "gateway_internal_dns": "gateway.internal",
+    "postgresql_provider": "replace-provider",
+    "postgresql_version": "15",
+    "oidc_issuer": "https://idp.example.com",
+    "oidc_client_id": "replace-client-id"
+  },
+  "recovery": {
+    "approved_rpo_seconds": 1,
+    "approved_rto_seconds": 1,
+    "recovery_set_id": "replace-recovery-set-id"
+  },
+  "owners": {
+    "rollout": "replace-rollout-owner",
+    "rollback": "replace-rollback-owner",
+    "restore": "replace-restore-owner",
+    "reviewer": "replace-independent-reviewer"
+  },
+  "checks": [
+    { "id": "release.director", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "release.gateway", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "release.ui", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "deployment.kubernetes_contract", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "edge.nginx_config", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "edge.external_contract", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "mtls.certificate_profile", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "mtls.live_director_to_gateway", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "mtls.live_gateway_to_director", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "postgres.migration_status", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "postgres.contention", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "postgres.logical_restore", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "postgres.pitr_restore", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "oidc.discovery", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "oidc.browser_canary", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "application.primary_canary", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "application.failure_modes", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "operations.rollback", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "operations.observability", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "evidence.peer_review", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] }
+  ]
+}

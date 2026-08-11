@@ -1,0 +1,53 @@
+{
+  "name": "@dirizhor/director-reference",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.16.0",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.e2e.json --noEmit",
+    "db:adopt-v1": "node --import tsx scripts/db-migrate.ts adopt-v1",
+    "db:checksums": "node ../../db/scripts/migration-checksums.mjs",
+    "db:document-store-evidence": "node --import tsx scripts/document-store-evidence.ts",
+    "db:migrate": "node --import tsx scripts/db-migrate.ts migrate",
+    "db:migrate:runtime": "node dist/db-migrate-cli.js migrate",
+    "db:status": "node --import tsx scripts/db-migrate.ts status",
+    "db:status:runtime": "node dist/db-migrate-cli.js status",
+    "db:test-backup-restore": "node --import tsx scripts/postgres-backup-restore.ts",
+    "db:test-contention": "node --import tsx scripts/postgres-contention.ts",
+    "db:test-startup-guards": "node --import tsx scripts/postgres-startup-guards.ts",
+    "dev": "tsx src/main.ts",
+    "lint": "eslint .",
+    "oidc:preflight": "node --import tsx scripts/oidc-preflight.ts",
+    "oidc:provision": "node --import tsx scripts/oidc-provision.ts",
+    "oidc:revoke-access": "node --import tsx scripts/oidc-revoke-access.ts",
+    "password:hash": "tsx scripts/hash-local-password.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.1.2",
+    "@fastify/multipart": "^10.1.0",
+    "@fastify/type-provider-typebox": "^6.1.0",
+    "@sinclair/typebox": "^0.34.52",
+    "fastify": "^5.11.3",
+    "json-canonicalize": "^2.0.0",
+    "openid-client": "^6.8.4",
+    "pg": "^8.16.3",
+    "undici": "^6.28.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.4",
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.2.0",
+    "@types/pg": "^8.15.5",
+    "eslint": "^10.8.1",
+    "tsx": "^4.23.11",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.66.0",
+    "vitest": "^4.1.10"
+  }
+}

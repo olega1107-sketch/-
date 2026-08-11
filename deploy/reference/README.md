@@ -48,6 +48,9 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/review-package-preflight.mjs` — fail-closed проверка чистого
   Git-снимка, secret material, runtime/evidence paths и локальных ссылок
   перед architecture review;
+- `scripts/architecture-review.mjs`, review template и
+  `architecture-review-runbook.md` — проверяемый gate шести ролевых дорожек,
+  замечаний и независимого финального решения по exact Git baseline;
 - `conformance/checks-v2.json` и `conformance/evidence-template-v2.json` —
   текущий versioned registry обязательных проверок и строгий шаблон отчёта;
 - `conformance/checks-v1.json` и `conformance/evidence-template-v1.json` —

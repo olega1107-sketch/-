@@ -73,6 +73,9 @@ export const requiredReviewFiles = Object.freeze([
   'docs/dirizhor/module-boundaries.md',
   'docs/dirizhor/mvp-scenarios.md',
   'docs/dirizhor/architecture-guardrails.md',
+  'deploy/reference/architecture-review-runbook.md',
+  'deploy/reference/conformance/architecture-review-template-v1.json',
+  'deploy/reference/scripts/architecture-review.mjs',
   'deploy/reference/target-conformance-runbook.md',
 ]);
 

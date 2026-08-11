@@ -67,6 +67,13 @@ slice, но не является утверждённым production deployment
 5. Независимый reviewer подтвердил baseline commit и его review package
    preflight.
 
+Формальный результат фиксируется через
+[architecture review gate](deploy/reference/architecture-review-runbook.md).
+Его `PASS` требует все шесть завершённых дорожек, отсутствие открытых
+`blocking`/`major`, явные решения по закрытым замечаниям и отдельного final
+reviewer. JSON с именами и замечаниями хранится в игнорируемом
+`review-output/`, а не в публикуемом baseline.
+
 ## Безопасная выдача доступа
 
 Коллегам выдаётся read-only доступ к exact Git commit или tag. Доступ к

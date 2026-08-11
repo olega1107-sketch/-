@@ -280,3 +280,7 @@ contention, restore manifest или audit является stop-ship и не о�
 Независимый reviewer проверяет ссылки на исходные artifacts, сверяет manifest
 hash с защищённым evidence document и только после этого ставит
 `evidence.peer_review=PASS`. Reviewer не может совпадать с rollout owner.
+Архитектурная часть peer review дополнительно должна иметь `PASS` от
+[`architecture-review.mjs`](architecture-review-runbook.md); его report hash
+сохраняется как отдельный opaque evidence reference. Этот gate не заменяет
+проверку release и target evidence вторым человеком.

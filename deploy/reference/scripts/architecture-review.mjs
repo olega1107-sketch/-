@@ -70,12 +70,16 @@ export function validateArchitectureReview(document) {
     document.final_review,
     startedAt,
     completedAt,
+    document.owners.final_reviewer,
   );
 
-  const trackReviewers = new Set(tracks.map((track) => track.reviewer));
+  const trackReviewers = new Set(
+    tracks.map((track) => track.reviewer).filter((reviewer) => reviewer !== null),
+  );
   if (
-    document.owners.final_reviewer === document.owners.decision_owner ||
-    trackReviewers.has(document.owners.final_reviewer)
+    document.owners.final_reviewer !== null &&
+    (document.owners.final_reviewer === document.owners.decision_owner ||
+      trackReviewers.has(document.owners.final_reviewer))
   ) {
     throw new Error('Final reviewer must be independent from review and decision owners.');
   }
@@ -90,7 +94,17 @@ export function validateArchitectureReview(document) {
     (finding) => finding.status === 'OPEN' && finding.severity === 'minor',
   ).length;
   const tracksComplete = tracks.filter((track) => track.status === 'COMPLETE').length;
+  const tracksAssigned = tracks.filter((track) => track.reviewer !== null).length;
   const blockingReasons = [];
+  if (
+    document.owners.decision_owner === null ||
+    document.owners.final_reviewer === null
+  ) {
+    blockingReasons.push('owners_unassigned');
+  }
+  if (tracksAssigned !== requiredReviewTracks.length) {
+    blockingReasons.push('tracks_unassigned');
+  }
   if (tracksComplete !== requiredReviewTracks.length) {
     blockingReasons.push('tracks_incomplete');
   }
@@ -111,6 +125,7 @@ export function validateArchitectureReview(document) {
     owners: { ...document.owners },
     gate_status: blockingReasons.length === 0 ? 'PASS' : 'BLOCKED',
     counts: {
+      tracks_assigned: tracksAssigned,
       tracks_complete: tracksComplete,
       tracks_required: requiredReviewTracks.length,
       findings_total: findings.length,
@@ -174,7 +189,12 @@ function validateOwners(owners) {
   assertObject(owners, 'owners');
   assertExactKeys(owners, ['decision_owner', 'final_reviewer'], 'owners');
   for (const key of ['decision_owner', 'final_reviewer']) {
-    if (!ownerPattern.test(owners[key]) || owners[key].startsWith('replace-')) {
+    if (owners[key] === null) continue;
+    if (
+      typeof owners[key] !== 'string' ||
+      !ownerPattern.test(owners[key]) ||
+      owners[key].startsWith('replace-')
+    ) {
       throw new Error(`${key} must be an opaque owner identifier.`);
     }
   }
@@ -197,7 +217,12 @@ function validateTracks(tracks, startedAt, completedAt) {
     if (!required.has(track.id) || seen.has(track.id)) {
       throw new Error('Review contains an unknown or duplicate track.');
     }
-    if (!ownerPattern.test(track.reviewer) || track.reviewer.startsWith('replace-')) {
+    if (
+      track.reviewer !== null &&
+      (typeof track.reviewer !== 'string' ||
+        !ownerPattern.test(track.reviewer) ||
+        track.reviewer.startsWith('replace-'))
+    ) {
       throw new Error('Review track requires an opaque reviewer identifier.');
     }
     if (!trackStatuses.has(track.status)) {
@@ -206,12 +231,15 @@ function validateTracks(tracks, startedAt, completedAt) {
     if (track.status === 'COMPLETE') {
       const completed = timestamp(track.completed_at, 'track completed_at');
       if (
+        track.reviewer === null ||
         completed < startedAt ||
         (completedAt !== null && completed > completedAt) ||
         !validEvidenceReference(track.evidence_ref)
       ) {
         throw new Error('Completed review track requires timely opaque evidence.');
       }
+    } else if (track.status === 'IN_REVIEW' && track.reviewer === null) {
+      throw new Error('Active review track requires an assigned reviewer.');
     } else if (track.completed_at !== null || track.evidence_ref !== null) {
       throw new Error('Incomplete review track cannot claim completion evidence.');
     }
@@ -287,7 +315,7 @@ function validateFindings(findings, decisionOwner) {
   return normalized.sort((left, right) => left.id.localeCompare(right.id));
 }
 
-function validateFinalReview(finalReview, startedAt, completedAt) {
+function validateFinalReview(finalReview, startedAt, completedAt, finalReviewer) {
   assertObject(finalReview, 'final_review');
   assertExactKeys(finalReview, ['status', 'reviewed_at', 'evidence_ref'], 'final_review');
   if (!finalStatuses.has(finalReview.status)) {
@@ -304,6 +332,7 @@ function validateFinalReview(finalReview, startedAt, completedAt) {
   }
   const reviewedAt = timestamp(finalReview.reviewed_at, 'final reviewed_at');
   if (
+    finalReviewer === null ||
     completedAt === null ||
     reviewedAt < startedAt ||
     reviewedAt > completedAt ||

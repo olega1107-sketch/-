@@ -28,6 +28,11 @@ node deploy/reference/scripts/architecture-review.mjs \
 - `1`: корректный документ, но gate `BLOCKED`;
 - `2`: документ или Git baseline невалиден.
 
+На этапе планирования owner/reviewer может быть `null`: документ останется
+валидным, но gate покажет `owners_unassigned` или `tracks_unassigned` и вернёт
+`BLOCKED`. Для `IN_REVIEW`, `COMPLETE`, закрытого замечания и final decision
+соответствующий opaque owner ID обязателен.
+
 ## Дорожки и замечания
 
 Обязательные дорожки: `product_domain`, `application_api`, `security`, `data`,

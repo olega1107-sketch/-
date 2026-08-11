@@ -9,16 +9,16 @@
   "started_at": "1970-01-01T00:00:00.000Z",
   "completed_at": null,
   "owners": {
-    "decision_owner": "replace-decision-owner",
-    "final_reviewer": "replace-independent-final-reviewer"
+    "decision_owner": null,
+    "final_reviewer": null
   },
   "tracks": [
-    { "id": "product_domain", "reviewer": "replace-product-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
-    { "id": "application_api", "reviewer": "replace-api-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
-    { "id": "security", "reviewer": "replace-security-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
-    { "id": "data", "reviewer": "replace-data-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
-    { "id": "platform_sre", "reviewer": "replace-platform-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
-    { "id": "engineering", "reviewer": "replace-engineering-reviewer", "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null }
+    { "id": "product_domain", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
+    { "id": "application_api", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
+    { "id": "security", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
+    { "id": "data", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
+    { "id": "platform_sre", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null },
+    { "id": "engineering", "reviewer": null, "status": "NOT_STARTED", "completed_at": null, "evidence_ref": null }
   ],
   "findings": [],
   "final_review": {

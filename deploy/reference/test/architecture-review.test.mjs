@@ -56,6 +56,33 @@ test('incomplete tracks and open blocking or major findings block the gate', () 
   ]);
 });
 
+test('unassigned review plan is valid and reports explicit blockers', () => {
+  const review = completeReview();
+  review.completed_at = null;
+  review.owners = { decision_owner: null, final_reviewer: null };
+  review.tracks = review.tracks.map((track) => ({
+    ...track,
+    reviewer: null,
+    status: 'NOT_STARTED',
+    completed_at: null,
+    evidence_ref: null,
+  }));
+  review.findings = [];
+  review.final_review = { status: 'NOT_RUN', reviewed_at: null, evidence_ref: null };
+
+  const report = validateArchitectureReview(review);
+  assert.equal(report.gate_status, 'BLOCKED');
+  assert.equal(report.counts.tracks_assigned, 0);
+  assert.equal(report.counts.tracks_complete, 0);
+  assert.deepEqual(report.blocking_reasons, [
+    'final_review_not_approved',
+    'owners_unassigned',
+    'review_not_completed',
+    'tracks_incomplete',
+    'tracks_unassigned',
+  ]);
+});
+
 test('open minor findings are reported without blocking an approved review', () => {
   const review = completeReview();
   review.findings = [openFinding('ARCH-2', 'minor')];
@@ -104,6 +131,24 @@ test('final reviewer must be independent from all review participants', () => {
   const trackReviewer = completeReview();
   trackReviewer.owners.final_reviewer = trackReviewer.tracks[0].reviewer;
   assert.throws(() => validateArchitectureReview(trackReviewer), /independent/);
+});
+
+test('active and completed tracks require an assigned reviewer', () => {
+  const active = completeReview();
+  active.completed_at = null;
+  active.tracks[0] = {
+    ...active.tracks[0],
+    reviewer: null,
+    status: 'IN_REVIEW',
+    completed_at: null,
+    evidence_ref: null,
+  };
+  active.final_review = { status: 'NOT_RUN', reviewed_at: null, evidence_ref: null };
+  assert.throws(() => validateArchitectureReview(active), /assigned reviewer/);
+
+  const complete = completeReview();
+  complete.tracks[0].reviewer = null;
+  assert.throws(() => validateArchitectureReview(complete), /timely opaque evidence/);
 });
 
 test('unsupported fields and invalid temporal evidence are rejected', () => {

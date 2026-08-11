@@ -58,7 +58,8 @@ Required object/key inventory:
 | Config key | Required data keys |
 | --- | --- |
 | `image_pull` | `.dockerconfigjson` |
-| `service_tokens` | `director-to-gateway`, `gateway-to-director` |
+| `director_workload_identity` | `signing-private-key-base64`, `gateway-verification-keys-json` |
+| `gateway_workload_identity` | `signing-private-key-base64`, `director-verification-keys-json` |
 | `director_runtime` | `database-url`, `capability-key-base64`, `oidc-client-secret` |
 | `director_tls` | `tls.crt`, `tls.key`, `ca.crt` |
 | `director_gateway_client_tls` | `tls.crt`, `tls.key`, `ca.crt` |
@@ -74,8 +75,10 @@ Required object/key inventory:
 
 Projected files имеют mode `0440`; Pod `fsGroup=10001` является разрешённой
 группой чтения. Secrets не передаются через command arguments, ConfigMap или
-literal environment values. Runtime PostgreSQL credential не имеет DDL-прав;
-`migration_database` существует только на время migration Job.
+literal environment values. Signing private key доступен только своему caller,
+а receiver получает public verification keyset противоположного сервиса.
+Runtime PostgreSQL credential не имеет DDL-прав; `migration_database` существует
+только на время migration Job.
 
 ## 4. PKI identities
 
@@ -109,7 +112,7 @@ bearer token и может обращаться только к generic health e
 7. Выполнить отдельный runtime `db:status`; pending/dirty/diverged блокирует rollout.
 8. Применить workloads, дождаться rollout и проверить probes/events.
 9. Выполнить `target-canary.mjs` для external Host/TLS, OIDC discovery/start,
-   mTLS+Bearer и exact project scope, затем завершить browser MFA и выполнить
+   mTLS+short-lived-workload-token и exact project scope, затем завершить browser MFA и выполнить
    отдельный `application-canary.mjs`. Его internal route должен соответствовать
    реальному internal adapter/deployment, а не переклассифицированному cloud route.
 10. В отдельном change window выполнить PostgreSQL startup-guard harness и

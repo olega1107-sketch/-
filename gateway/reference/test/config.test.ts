@@ -31,8 +31,8 @@ describe('Gateway runtime configuration', () => {
   it('loads runtime and provider secrets from mounted files', () => {
     const mounted: Record<string, string> = {
       '/run/secrets/spool-key': `${Buffer.alloc(32, 0x41).toString('base64')}\n`,
-      '/run/secrets/director-token': 'mounted-director-token\n',
-      '/run/secrets/inbound-token': 'mounted-inbound-token\n',
+      '/run/secrets/signing-key': `${Buffer.alloc(48, 0x42).toString('base64')}\n`,
+      '/run/secrets/verify-keys': `${verificationKeyset('director-key-mounted')}\n`,
       '/run/secrets/openai-key': 'mounted-openai-key\n',
     };
     const config = loadGatewayConfig(
@@ -40,10 +40,10 @@ describe('Gateway runtime configuration', () => {
         ...protectedEnvironment(),
         GATEWAY_SPOOL_KEY_BASE64: undefined,
         GATEWAY_SPOOL_KEY_BASE64_FILE: '/run/secrets/spool-key',
-        DIRECTOR_SERVICE_TOKEN: undefined,
-        DIRECTOR_SERVICE_TOKEN_FILE: '/run/secrets/director-token',
-        GATEWAY_DIRECTOR_TOKEN: undefined,
-        GATEWAY_DIRECTOR_TOKEN_FILE: '/run/secrets/inbound-token',
+        GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64: undefined,
+        GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE: '/run/secrets/signing-key',
+        DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON: undefined,
+        DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE: '/run/secrets/verify-keys',
         OPENAI_API_KEY_FILE: '/run/secrets/openai-key',
       },
       (path) => mounted[path] ?? (() => { throw new Error('missing fixture'); })(),
@@ -51,8 +51,10 @@ describe('Gateway runtime configuration', () => {
 
     expect(config).toMatchObject({
       spoolKeyBase64: Buffer.alloc(32, 0x41).toString('base64'),
-      directorServiceToken: 'mounted-director-token',
-      inboundDirectorToken: 'mounted-inbound-token',
+      serviceIdentity: {
+        mode: 'workload',
+        signingPrivateKeyBase64: Buffer.alloc(48, 0x42).toString('base64'),
+      },
       openAiApiKey: 'mounted-openai-key',
     });
   });
@@ -149,10 +151,18 @@ function baseEnvironment(): NodeJS.ProcessEnv {
     GATEWAY_STATE_DIR: '/var/lib/gateway',
     GATEWAY_SPOOL_KEY_BASE64: Buffer.alloc(32, 0x31).toString('base64'),
     DIRECTOR_BASE_URL: 'https://director.internal',
-    DIRECTOR_SERVICE_TOKEN: 'gateway-to-director-token',
-    GATEWAY_DIRECTOR_TOKEN: 'director-to-gateway-token',
+    GATEWAY_WORKLOAD_SIGNING_KEY_ID: 'gateway-key-2026-08',
+    GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64: Buffer.alloc(48, 0x41).toString('base64'),
+    DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON: verificationKeyset('director-key-2026-08'),
     GATEWAY_ENABLE_FIXTURE_PROVIDER: 'true',
   };
+}
+
+function verificationKeyset(kid: string): string {
+  return JSON.stringify({
+    schema_version: 1,
+    keys: [{ kid, public_key_base64: Buffer.alloc(44, 0x43).toString('base64') }],
+  });
 }
 
 function protectedEnvironment(): NodeJS.ProcessEnv {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { generateKeyPairSync } from 'node:crypto';
 import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -17,8 +18,6 @@ import {
 const projectId = '11111111-1111-4111-8111-111111111111';
 const extraProjectId = '22222222-2222-4222-8222-222222222222';
 const sessionToken = 's'.repeat(43);
-const serviceTokenA = 'director-to-gateway-token';
-const serviceTokenB = 'gateway-to-director-token';
 const peerFingerprint = Array.from({ length: 32 }, () => 'AA').join(':');
 const baselineHeaders = {
   'strict-transport-security': ['max-age=63072000; includeSubDomains'],
@@ -176,13 +175,19 @@ test('runner proves edge, OIDC, both mTLS directions, and exact session scope wi
         ['edge.external_contract', 'PASS'],
         ['mtls.live_director_to_gateway', 'PASS'],
         ['mtls.live_gateway_to_director', 'PASS'],
+        ['workload_identity.live_director_to_gateway', 'PASS'],
+        ['workload_identity.live_gateway_to_director', 'PASS'],
         ['oidc.discovery', 'PASS'],
       ],
     );
     assert.match(report.report_sha256, /^sha256:[0-9a-f]{64}$/);
 
     const serialized = JSON.stringify(report);
-    for (const secret of [sessionToken, serviceTokenA, serviceTokenB]) {
+    for (const secret of [
+      sessionToken,
+      fixture.workloadSigningKeyAValue,
+      fixture.workloadSigningKeyBValue,
+    ]) {
       assert.equal(serialized.includes(secret), false);
     }
     assert.equal(serialized.includes(fixture.root), false);
@@ -404,8 +409,14 @@ function syntheticRequest(config, behavior) {
           ? response(404, {}, { error: { code: 'not_found' } })
           : response(401, {}, { error: { code: 'unauthorized_service' } });
       }
-      if (request.headers.authorization !== `Bearer ${serviceTokenA}`) {
-        return behavior.gatewayAcceptsInvalidBearer
+      if (
+        request.headers.authorization === 'Bearer target-canary-invalid' &&
+        behavior.gatewayAcceptsInvalidBearer
+      ) {
+        return response(404, {}, { error: { code: 'not_found' } });
+      }
+      if (!validWorkloadAuthorization(request.headers.authorization, 'director-api', 'agent-gateway')) {
+        return behavior.gatewayAcceptsAllInvalidBearer
           ? response(404, {}, { error: { code: 'not_found' } })
           : response(401, {}, { error: { code: 'unauthorized_service' } });
       }
@@ -415,7 +426,7 @@ function syntheticRequest(config, behavior) {
       if (request.cert === undefined || request.headers.authorization === undefined) {
         return response(401, {}, { error: { code: 'unauthorized_service' } });
       }
-      if (request.headers.authorization !== `Bearer ${serviceTokenB}`) {
+      if (!validWorkloadAuthorization(request.headers.authorization, 'agent-gateway', 'director-api')) {
         return response(401, {}, { error: { code: 'unauthorized_service' } });
       }
       return response(403, {}, { error: { code: 'capability_invalid' } });
@@ -439,10 +450,11 @@ function response(statusCode, headers, body) {
 
 function validConfig(fixture) {
   return {
-    schema_version: 1,
+    schema_version: 2,
     execution_id: 'CHG-123-target-canary-01',
     environment: 'production-pilot',
     request_timeout_ms: 10_000,
+    workload_token_ttl_seconds: 60,
     public: {
       origin: 'https://director.example.test',
       ca_path: null,
@@ -469,7 +481,8 @@ function validConfig(fixture) {
       ca_path: fixture.certificate,
       client_certificate_path: fixture.certificate,
       client_private_key_path: fixture.privateKey,
-      bearer_token_file: fixture.serviceTokenA,
+      workload_signing_key_id: 'director-key-current',
+      workload_signing_private_key_file: fixture.workloadSigningKeyA,
     },
     gateway_to_director: {
       origin: 'https://director.internal.test:8444',
@@ -477,7 +490,8 @@ function validConfig(fixture) {
       ca_path: fixture.certificate,
       client_certificate_path: fixture.certificate,
       client_private_key_path: fixture.privateKey,
-      bearer_token_file: fixture.serviceTokenB,
+      workload_signing_key_id: 'gateway-key-current',
+      workload_signing_private_key_file: fixture.workloadSigningKeyB,
     },
   };
 }
@@ -527,17 +541,50 @@ async function materialFixture() {
   await chmod(certificate, 0o644);
   await chmod(privateKey, 0o600);
   const sessionTokenPath = path.join(root, 'session-token');
-  const serviceTokenAPath = path.join(root, 'service-token-a');
-  const serviceTokenBPath = path.join(root, 'service-token-b');
+  const workloadSigningKeyAPath = path.join(root, 'workload-signing-key-a');
+  const workloadSigningKeyBPath = path.join(root, 'workload-signing-key-b');
+  const workloadSigningKeyAValue = signingKeyBase64();
+  const workloadSigningKeyBValue = signingKeyBase64();
   await writeFile(sessionTokenPath, `${sessionToken}\n`, { mode: 0o600 });
-  await writeFile(serviceTokenAPath, `${serviceTokenA}\n`, { mode: 0o600 });
-  await writeFile(serviceTokenBPath, `${serviceTokenB}\n`, { mode: 0o600 });
+  await writeFile(workloadSigningKeyAPath, `${workloadSigningKeyAValue}\n`, { mode: 0o600 });
+  await writeFile(workloadSigningKeyBPath, `${workloadSigningKeyBValue}\n`, { mode: 0o600 });
   return {
     root,
     certificate,
     privateKey,
     sessionToken: sessionTokenPath,
-    serviceTokenA: serviceTokenAPath,
-    serviceTokenB: serviceTokenBPath,
+    workloadSigningKeyA: workloadSigningKeyAPath,
+    workloadSigningKeyB: workloadSigningKeyBPath,
+    workloadSigningKeyAValue,
+    workloadSigningKeyBValue,
   };
+}
+
+function signingKeyBase64() {
+  return generateKeyPairSync('ed25519').privateKey
+    .export({ format: 'der', type: 'pkcs8' })
+    .toString('base64');
+}
+
+function validWorkloadAuthorization(authorization, issuer, audience) {
+  const token = authorization?.match(/^Bearer ([A-Za-z0-9_.-]+)$/)?.[1];
+  if (token === undefined) return false;
+  const parts = token.split('.');
+  if (parts.length !== 3 || parts[1] === undefined) return false;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+    const now = Math.floor(Date.now() / 1000);
+    return (
+      payload.v === 1 &&
+      payload.iss === issuer &&
+      payload.aud === audience &&
+      Number.isSafeInteger(payload.iat) &&
+      Number.isSafeInteger(payload.exp) &&
+      payload.exp > now &&
+      payload.iat <= now + 5 &&
+      payload.exp - payload.iat <= 300
+    );
+  } catch {
+    return false;
+  }
 }

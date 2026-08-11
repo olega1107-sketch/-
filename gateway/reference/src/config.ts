@@ -5,6 +5,10 @@ import {
   requiredSecret,
   type SecretFileReader,
 } from './secret-config.js';
+import {
+  parseWorkloadVerificationKeyset,
+  type WorkloadVerificationKey,
+} from './workload-identity.js';
 
 const hostnamePattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$/;
 
@@ -14,8 +18,19 @@ export interface GatewayConfig {
   stateDirectory: string;
   spoolKeyBase64: string;
   directorBaseUrl: string;
-  directorServiceToken: string;
-  inboundDirectorToken: string;
+  serviceIdentity:
+    | {
+        mode: 'static-development';
+        inboundToken: string;
+        outboundToken: string;
+      }
+    | {
+        mode: 'workload';
+        signingKeyId: string;
+        signingPrivateKeyBase64: string;
+        verificationKeys: WorkloadVerificationKey[];
+        tokenTtlSeconds: number;
+      };
   allowInsecureDevelopment: boolean;
   enableFixtureProvider: boolean;
   openAiApiKey?: string;
@@ -62,14 +77,9 @@ export function loadGatewayConfig(
       secretFileReader,
     ),
     directorBaseUrl: required(env, 'DIRECTOR_BASE_URL'),
-    directorServiceToken: requiredSecret(
+    serviceIdentity: configuredServiceIdentity(
       env,
-      'DIRECTOR_SERVICE_TOKEN',
-      secretFileReader,
-    ),
-    inboundDirectorToken: requiredSecret(
-      env,
-      'GATEWAY_DIRECTOR_TOKEN',
+      allowInsecureDevelopment,
       secretFileReader,
     ),
     allowInsecureDevelopment,
@@ -102,6 +112,55 @@ export function loadGatewayConfig(
       keyPath: optionalPath(env, 'GATEWAY_DIRECTOR_CLIENT_KEY_PATH') ?? tls.keyPath,
       caPath: optionalPath(env, 'GATEWAY_DIRECTOR_CA_PATH') ?? tls.caPath,
     },
+  };
+}
+
+function configuredServiceIdentity(
+  env: NodeJS.ProcessEnv,
+  allowInsecureDevelopment: boolean,
+  secretFileReader?: SecretFileReader,
+): GatewayConfig['serviceIdentity'] {
+  if (
+    allowInsecureDevelopment &&
+    [
+      'DIRECTOR_SERVICE_TOKEN',
+      'DIRECTOR_SERVICE_TOKEN_FILE',
+      'GATEWAY_DIRECTOR_TOKEN',
+      'GATEWAY_DIRECTOR_TOKEN_FILE',
+    ].some((name) => env[name] !== undefined)
+  ) {
+    return {
+      mode: 'static-development',
+      outboundToken: requiredSecret(env, 'DIRECTOR_SERVICE_TOKEN', secretFileReader),
+      inboundToken: requiredSecret(env, 'GATEWAY_DIRECTOR_TOKEN', secretFileReader),
+    };
+  }
+  for (const legacyName of [
+    'DIRECTOR_SERVICE_TOKEN',
+    'DIRECTOR_SERVICE_TOKEN_FILE',
+    'GATEWAY_DIRECTOR_TOKEN',
+    'GATEWAY_DIRECTOR_TOKEN_FILE',
+  ]) {
+    if (env[legacyName] !== undefined) {
+      throw new Error(`${legacyName} is allowed only in insecure development mode.`);
+    }
+  }
+  const tokenTtlSeconds = Number(env.GATEWAY_WORKLOAD_TOKEN_TTL_SECONDS ?? '60');
+  if (!Number.isSafeInteger(tokenTtlSeconds) || tokenTtlSeconds < 10 || tokenTtlSeconds > 300) {
+    throw new Error('GATEWAY_WORKLOAD_TOKEN_TTL_SECONDS must be an integer from 10 through 300.');
+  }
+  return {
+    mode: 'workload',
+    signingKeyId: required(env, 'GATEWAY_WORKLOAD_SIGNING_KEY_ID'),
+    signingPrivateKeyBase64: requiredSecret(
+      env,
+      'GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64',
+      secretFileReader,
+    ),
+    verificationKeys: parseWorkloadVerificationKeyset(
+      requiredSecret(env, 'DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON', secretFileReader),
+    ),
+    tokenTtlSeconds,
   };
 }
 

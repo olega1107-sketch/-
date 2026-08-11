@@ -10,7 +10,14 @@ import { HttpDirectorClient } from './http-director-client.js';
 import { InternalInferenceAdapter } from './internal-inference-adapter.js';
 import { OpenAIResponsesAdapter } from './openai-responses-adapter.js';
 import type { ProviderAdapter } from './ports.js';
-import { StaticBearerAuthenticator } from './service-auth.js';
+import {
+  StaticBearerAuthenticator,
+  WorkloadIdentityAuthenticator,
+} from './service-auth.js';
+import {
+  Ed25519WorkloadTokenIssuer,
+  Ed25519WorkloadTokenVerifier,
+} from './workload-identity.js';
 
 async function main(): Promise<void> {
   const config = loadGatewayConfig();
@@ -30,9 +37,23 @@ async function main(): Promise<void> {
             rejectUnauthorized: true,
           },
         });
+  const outboundWorkloadIssuer =
+    config.serviceIdentity.mode === 'workload'
+      ? new Ed25519WorkloadTokenIssuer({
+          issuer: 'agent-gateway',
+          audience: 'director-api',
+          keyId: config.serviceIdentity.signingKeyId,
+          privateKeyBase64: config.serviceIdentity.signingPrivateKeyBase64,
+          ttlSeconds: config.serviceIdentity.tokenTtlSeconds,
+        })
+      : undefined;
   const director = new HttpDirectorClient({
     baseUrl: config.directorBaseUrl,
-    tokenProvider: () => config.directorServiceToken,
+    tokenProvider: () =>
+      outboundWorkloadIssuer?.issue() ??
+      (config.serviceIdentity.mode === 'static-development'
+        ? config.serviceIdentity.outboundToken
+        : (() => { throw new Error('Gateway workload token issuer is unavailable.'); })()),
     allowHttpForDevelopment: config.allowInsecureDevelopment,
     ...(directorDispatcher === undefined ? {} : { dispatcher: directorDispatcher }),
   });
@@ -92,11 +113,21 @@ async function main(): Promise<void> {
   const app = buildGatewayApp({
     service,
     readiness: () => store.checkReady(),
-    authenticator: new StaticBearerAuthenticator({
-      token: config.inboundDirectorToken,
-      requireMutualTls: !config.allowInsecureDevelopment,
-      allowedPeerCommonNames: config.tls?.allowedPeerCommonNames ?? [],
-    }),
+    authenticator:
+      config.serviceIdentity.mode === 'workload'
+        ? new WorkloadIdentityAuthenticator({
+            verifier: new Ed25519WorkloadTokenVerifier({
+              issuer: 'director-api',
+              audience: 'agent-gateway',
+              keys: config.serviceIdentity.verificationKeys,
+            }),
+            requireMutualTls: !config.allowInsecureDevelopment,
+            allowedPeerCommonNames: config.tls?.allowedPeerCommonNames ?? [],
+          })
+        : new StaticBearerAuthenticator({
+            token: config.serviceIdentity.inboundToken,
+            requireMutualTls: false,
+          }),
     https,
   });
 

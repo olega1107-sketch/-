@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 
-import { X509Certificate, createHash, randomUUID } from 'node:crypto';
+import {
+  X509Certificate,
+  createHash,
+  createPrivateKey,
+  randomUUID,
+  sign,
+} from 'node:crypto';
 import { lookup } from 'node:dns/promises';
 import { chmod, mkdir, readFile, stat, writeFile } from 'node:fs/promises';
 import https from 'node:https';
@@ -12,6 +18,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWorkspaceRoot = path.resolve(scriptDirectory, '../../..');
 const uuidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$/;
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,255}$/;
+const workloadKeyIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const hostnamePattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)(?:\.(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?))*$/;
 const evidenceReferencePattern = /^(?:alert|artifact|backup|change|dashboard|run|ticket):[A-Za-z0-9][A-Za-z0-9._:/#-]{0,240}$/;
 const asymmetricAlgorithms = new Set([
@@ -47,6 +54,10 @@ const securityHeaders = Object.freeze({
   'x-frame-options': 'DENY',
   'permissions-policy': 'camera=(), microphone=(), geolocation=()',
 });
+const serviceDirectionIdentities = Object.freeze({
+  director_to_gateway: Object.freeze({ issuer: 'director-api', audience: 'agent-gateway' }),
+  gateway_to_director: Object.freeze({ issuer: 'agent-gateway', audience: 'director-api' }),
+});
 
 export class CanaryFailure extends Error {
   constructor(code, message) {
@@ -74,6 +85,7 @@ export function validateTargetCanaryConfig(document) {
       'execution_id',
       'environment',
       'request_timeout_ms',
+      'workload_token_ttl_seconds',
       'public',
       'oidc',
       'session',
@@ -82,8 +94,8 @@ export function validateTargetCanaryConfig(document) {
     ],
     'config',
   );
-  if (document.schema_version !== 1) {
-    throw new Error('Target canary config schema_version must be 1.');
+  if (document.schema_version !== 2) {
+    throw new Error('Target canary config schema_version must be 2.');
   }
   assertIdentifier(document.execution_id, 'execution_id');
   assertIdentifier(document.environment, 'environment');
@@ -93,6 +105,13 @@ export function validateTargetCanaryConfig(document) {
     document.request_timeout_ms > 30_000
   ) {
     throw new Error('request_timeout_ms must be an integer from 1000 through 30000.');
+  }
+  if (
+    !Number.isSafeInteger(document.workload_token_ttl_seconds) ||
+    document.workload_token_ttl_seconds < 10 ||
+    document.workload_token_ttl_seconds > 300
+  ) {
+    throw new Error('workload_token_ttl_seconds must be an integer from 10 through 300.');
   }
 
   validatePublicConfig(document.public);
@@ -507,8 +526,9 @@ async function checkDirectorToGateway(config, runtime, reader) {
     'idempotency-key': agentRunId,
     'x-request-id': requestId,
   };
+  const bearer = issueCanaryWorkloadToken(config, runtime, direction, materials, 'director_to_gateway');
   const positive = await serviceRequest(config, runtime, direction, materials, pathname, {
-    headers: { ...baseHeaders, authorization: `Bearer ${materials.bearer}` },
+    headers: { ...baseHeaders, authorization: `Bearer ${bearer}` },
     body,
     includeClientIdentity: true,
   });
@@ -529,6 +549,36 @@ async function checkDirectorToGateway(config, runtime, reader) {
     'unauthorized_service',
     'gateway_bearer_not_required',
   );
+
+  const expiredBearer = issueCanaryWorkloadToken(
+    config,
+    runtime,
+    direction,
+    materials,
+    'director_to_gateway',
+    { issuedAtOffsetSeconds: -(config.workload_token_ttl_seconds + 60) },
+  );
+  const expired = await serviceRequest(config, runtime, direction, materials, pathname, {
+    headers: { ...baseHeaders, authorization: `Bearer ${expiredBearer}` },
+    body,
+    includeClientIdentity: true,
+  });
+  assertStatusAndError(expired, 401, 'unauthorized_service', 'gateway_expired_workload_token_accepted');
+
+  const wrongAudienceBearer = issueCanaryWorkloadToken(
+    config,
+    runtime,
+    direction,
+    materials,
+    'director_to_gateway',
+    { audience: 'director-api' },
+  );
+  const wrongAudience = await serviceRequest(config, runtime, direction, materials, pathname, {
+    headers: { ...baseHeaders, authorization: `Bearer ${wrongAudienceBearer}` },
+    body,
+    includeClientIdentity: true,
+  });
+  assertStatusAndError(wrongAudience, 401, 'unauthorized_service', 'gateway_wrong_audience_accepted');
 
   const invalidBearer = await serviceRequest(
     config,
@@ -552,7 +602,7 @@ async function checkDirectorToGateway(config, runtime, reader) {
   await expectTransportRejection(
     () =>
       serviceRequest(config, runtime, direction, materials, pathname, {
-        headers: { ...baseHeaders, authorization: `Bearer ${materials.bearer}` },
+        headers: { ...baseHeaders, authorization: `Bearer ${bearer}` },
         body,
         includeClientIdentity: false,
       }),
@@ -563,6 +613,9 @@ async function checkDirectorToGateway(config, runtime, reader) {
     authenticated_domain_response: { status_code: 404, error_code: 'not_found' },
     missing_bearer_rejected: true,
     invalid_bearer_rejected: true,
+    expired_workload_token_rejected: true,
+    wrong_audience_rejected: true,
+    workload_token_ttl_seconds: config.workload_token_ttl_seconds,
     missing_client_certificate_rejected: true,
     client_certificate_fingerprint_sha256: certificateFingerprint(materials.cert.content),
     server_tls: tlsObservation(positive),
@@ -586,8 +639,9 @@ async function checkGatewayToDirector(config, runtime, reader) {
     'x-agent-capability': `target-canary-${agentRunId}`,
     'x-request-id': requestId,
   };
+  const bearer = issueCanaryWorkloadToken(config, runtime, direction, materials, 'gateway_to_director');
   const positive = await serviceRequest(config, runtime, direction, materials, pathname, {
-    headers: { ...baseHeaders, authorization: `Bearer ${materials.bearer}` },
+    headers: { ...baseHeaders, authorization: `Bearer ${bearer}` },
     body,
     includeClientIdentity: true,
   });
@@ -608,6 +662,36 @@ async function checkGatewayToDirector(config, runtime, reader) {
     'unauthorized_service',
     'director_bearer_not_required',
   );
+
+  const expiredBearer = issueCanaryWorkloadToken(
+    config,
+    runtime,
+    direction,
+    materials,
+    'gateway_to_director',
+    { issuedAtOffsetSeconds: -(config.workload_token_ttl_seconds + 60) },
+  );
+  const expired = await serviceRequest(config, runtime, direction, materials, pathname, {
+    headers: { ...baseHeaders, authorization: `Bearer ${expiredBearer}` },
+    body,
+    includeClientIdentity: true,
+  });
+  assertStatusAndError(expired, 401, 'unauthorized_service', 'director_expired_workload_token_accepted');
+
+  const wrongAudienceBearer = issueCanaryWorkloadToken(
+    config,
+    runtime,
+    direction,
+    materials,
+    'gateway_to_director',
+    { audience: 'agent-gateway' },
+  );
+  const wrongAudience = await serviceRequest(config, runtime, direction, materials, pathname, {
+    headers: { ...baseHeaders, authorization: `Bearer ${wrongAudienceBearer}` },
+    body,
+    includeClientIdentity: true,
+  });
+  assertStatusAndError(wrongAudience, 401, 'unauthorized_service', 'director_wrong_audience_accepted');
 
   const invalidBearer = await serviceRequest(
     config,
@@ -635,7 +719,7 @@ async function checkGatewayToDirector(config, runtime, reader) {
     materials,
     pathname,
     {
-      headers: { ...baseHeaders, authorization: `Bearer ${materials.bearer}` },
+      headers: { ...baseHeaders, authorization: `Bearer ${bearer}` },
       body,
       includeClientIdentity: false,
     },
@@ -650,6 +734,9 @@ async function checkGatewayToDirector(config, runtime, reader) {
     authenticated_domain_response: { status_code: 403, error_code: 'capability_invalid' },
     missing_bearer_rejected: true,
     invalid_bearer_rejected: true,
+    expired_workload_token_rejected: true,
+    wrong_audience_rejected: true,
+    workload_token_ttl_seconds: config.workload_token_ttl_seconds,
     missing_client_certificate_rejected: true,
     client_certificate_fingerprint_sha256: certificateFingerprint(materials.cert.content),
     server_tls: tlsObservation(positive),
@@ -768,7 +855,7 @@ async function serviceRequest(config, runtime, direction, materials, pathname, o
 }
 
 async function serviceMaterials(reader, direction, label) {
-  const [ca, cert, key, bearerMaterial] = await Promise.all([
+  const [ca, cert, key, signingKeyMaterial] = await Promise.all([
     reader.read({ label: `${label}_ca`, path: direction.ca_path, protected: false, kind: 'pem' }),
     reader.read({
       label: `${label}_client_certificate`,
@@ -783,17 +870,75 @@ async function serviceMaterials(reader, direction, label) {
       kind: 'pem',
     }),
     reader.read({
-      label: `${label}_bearer_token`,
-      path: direction.bearer_token_file,
+      label: `${label}_workload_signing_key`,
+      path: direction.workload_signing_private_key_file,
       protected: true,
       kind: 'secret',
     }),
   ]);
-  const bearer = secretText(bearerMaterial.content, `${label} bearer token`);
-  if (bearer.length > 4096 || /\s/.test(bearer)) {
-    fail('service_token_invalid', 'Service bearer token violates the mounted-secret contract.');
+  const signingPrivateKeyBase64 = secretText(
+    signingKeyMaterial.content,
+    `${label} workload signing key`,
+  );
+  if (signingPrivateKeyBase64.length > 4096 || /\s/.test(signingPrivateKeyBase64)) {
+    fail('workload_signing_key_invalid', 'Workload signing key violates the mounted-secret contract.');
   }
-  return { ca, cert, key, bearer };
+  return { ca, cert, key, signingPrivateKeyBase64 };
+}
+
+function issueCanaryWorkloadToken(
+  config,
+  runtime,
+  direction,
+  materials,
+  directionName,
+  options = {},
+) {
+  const identity = serviceDirectionIdentities[directionName];
+  if (identity === undefined) fail('workload_direction_invalid', 'Workload identity direction is invalid.');
+  const privateKeyBytes = canonicalBase64(
+    materials.signingPrivateKeyBase64,
+    `${directionName} signing key`,
+  );
+  let privateKey;
+  try {
+    privateKey = createPrivateKey({ key: privateKeyBytes, format: 'der', type: 'pkcs8' });
+  } catch {
+    fail('workload_signing_key_invalid', 'Workload signing key is not valid PKCS8 DER.');
+  }
+  if (privateKey.asymmetricKeyType !== 'ed25519') {
+    fail('workload_signing_key_invalid', 'Workload signing key must be Ed25519.');
+  }
+  const nowSeconds = Math.floor(runtime.now().getTime() / 1000);
+  const issuedAt = nowSeconds + (options.issuedAtOffsetSeconds ?? 0);
+  const header = Buffer.from(JSON.stringify({
+    alg: 'EdDSA',
+    kid: direction.workload_signing_key_id,
+    typ: 'dirizhor-workload+jwt',
+  }), 'utf8').toString('base64url');
+  const payload = Buffer.from(JSON.stringify({
+    v: 1,
+    iss: identity.issuer,
+    aud: options.audience ?? identity.audience,
+    iat: issuedAt,
+    nbf: issuedAt,
+    exp: issuedAt + config.workload_token_ttl_seconds,
+    jti: runtime.randomUUID(),
+  }), 'utf8').toString('base64url');
+  const signingInput = `${header}.${payload}`;
+  const signature = sign(null, Buffer.from(signingInput, 'ascii'), privateKey);
+  return `${signingInput}.${signature.toString('base64url')}`;
+}
+
+function canonicalBase64(value, label) {
+  if (!/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(value)) {
+    fail('workload_signing_key_invalid', `${label} is not canonical base64.`);
+  }
+  const decoded = Buffer.from(value, 'base64');
+  if (decoded.length < 32 || decoded.toString('base64') !== value) {
+    fail('workload_signing_key_invalid', `${label} is not canonical base64.`);
+  }
+  return decoded;
 }
 
 async function fetchOidcMetadata(config, runtime, reader) {
@@ -1099,8 +1244,8 @@ function materialSpecifications(config) {
         kind: 'pem',
       },
       {
-        label: `${label}_bearer_token`,
-        path: direction.bearer_token_file,
+        label: `${label}_workload_signing_key`,
+        path: direction.workload_signing_private_key_file,
         protected: true,
         kind: 'secret',
       },
@@ -1217,6 +1362,8 @@ function registryUpdates(checks, evidenceRef) {
     ['edge.external_contract', ['edge.ui_contract', 'edge.hidden_health', 'edge.host_rejection']],
     ['mtls.live_director_to_gateway', ['mtls.director_to_gateway']],
     ['mtls.live_gateway_to_director', ['mtls.gateway_to_director']],
+    ['workload_identity.live_director_to_gateway', ['mtls.director_to_gateway']],
+    ['workload_identity.live_gateway_to_director', ['mtls.gateway_to_director']],
     ['oidc.discovery', ['oidc.discovery']],
   ];
   return mappings.map(([id, required]) => {
@@ -1339,7 +1486,8 @@ function validateServiceDirection(value, name) {
       'ca_path',
       'client_certificate_path',
       'client_private_key_path',
-      'bearer_token_file',
+      'workload_signing_key_id',
+      'workload_signing_private_key_file',
     ],
     name,
   );
@@ -1356,9 +1504,15 @@ function validateServiceDirection(value, name) {
     'ca_path',
     'client_certificate_path',
     'client_private_key_path',
-    'bearer_token_file',
+    'workload_signing_private_key_file',
   ]) {
     absolutePath(value[key], `${name}.${key}`);
+  }
+  if (
+    typeof value.workload_signing_key_id !== 'string' ||
+    !workloadKeyIdPattern.test(value.workload_signing_key_id)
+  ) {
+    throw new Error(`${name}.workload_signing_key_id is invalid.`);
   }
 }
 

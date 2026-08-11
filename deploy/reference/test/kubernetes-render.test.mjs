@@ -77,11 +77,18 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
   assert.ok(serviceAccounts.every((account) => account.automountServiceAccountToken === false && account.spec === undefined));
   const directorConfig = resources.find((resource) => resource.kind === 'ConfigMap' && resource.metadata.name === 'dirizhor-director-config');
   assert.match(directorConfig.data.GATEWAY_BASE_URL, /\.svc\.corp\.internal:8443$/);
+  assert.equal(directorConfig.data.DIRECTOR_WORKLOAD_SIGNING_KEY_ID, 'director-2026-08-a');
+  assert.equal(directorConfig.data.DIRECTOR_WORKLOAD_TOKEN_TTL_SECONDS, '60');
   const gatewayConfig = resources.find((resource) => resource.kind === 'ConfigMap' && resource.metadata.name === 'dirizhor-gateway-config');
   assert.equal(gatewayConfig.data.INTERNAL_PROVIDER_ORIGIN, config.internal_provider.origin);
   assert.equal(gatewayConfig.data.INTERNAL_PROVIDER_MODELS, 'approved-internal-model');
   const gateway = deployment(resources, 'gateway');
   assert.ok(gateway.spec.template.spec.volumes.some((volume) => volume.name === 'internal-provider-tls'));
+  assert.ok(gateway.spec.template.spec.volumes.some((volume) => volume.name === 'workload-identity'));
+  const gatewayEnvNames = gateway.spec.template.spec.containers[0].env.map((entry) => entry.name);
+  assert.ok(gatewayEnvNames.includes('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE'));
+  assert.ok(gatewayEnvNames.includes('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE'));
+  assert.equal(gatewayEnvNames.includes('GATEWAY_DIRECTOR_TOKEN_FILE'), false);
   const job = resources.find((resource) => resource.kind === 'Job');
   assert.deepEqual(job.spec.template.spec.containers[0].command, ['node', 'dist/db-migrate-cli.js', 'migrate']);
 });
@@ -180,6 +187,11 @@ function validConfig() {
       scopes: ['openid', 'profile', 'email'],
       id_token_signing_algorithm: 'RS256',
     },
+    workload_identity: {
+      director_signing_key_id: 'director-2026-08-a',
+      gateway_signing_key_id: 'gateway-2026-08-a',
+      token_ttl_seconds: 60,
+    },
     internal_provider: {
       origin: 'https://inference.internal.test',
       models: ['approved-internal-model'],
@@ -202,7 +214,8 @@ function validConfig() {
     ],
     secrets: {
       image_pull: 'dirizhor-registry-auth',
-      service_tokens: 'dirizhor-service-tokens',
+      director_workload_identity: 'dirizhor-director-workload-identity',
+      gateway_workload_identity: 'dirizhor-gateway-workload-identity',
       director_runtime: 'dirizhor-director-runtime',
       director_tls: 'dirizhor-director-tls',
       director_gateway_client_tls: 'dirizhor-director-gateway-client-tls',

@@ -145,18 +145,21 @@ identity. Требуются matching private key, закрытые key permissi
 chain и CN в ingress allowlist.
 
 После запуска services выполнить live handshake в обоих направлениях. Запрос с
-правильными client certificate и service bearer проходит, отсутствие любого из
-двух факторов отклоняется. Bearer передаётся через protected header/config file,
-не как literal process argument. Зафиксировать peer certificate fingerprint,
-server DNS и request ID, но не bearer.
+правильными client certificate и свежим workload token проходит, отсутствие
+любого из двух факторов отклоняется. Canary отдельно доказывает отказ для
+истёкшего token и неверного audience. Signing key передаётся через protected
+config file, не как literal process argument. Зафиксировать peer certificate
+fingerprint, server DNS и request ID, но не token или signing material.
 
 Эти проверки вместе с external edge и OIDC discovery автоматизированы
 `scripts/target-canary.mjs`. Конфигурация, безопасный execution context и точная
 граница переносимых registry updates описаны в
-[automated target canary v1](target-canary-runbook.md).
+[automated target canary v2](target-canary-runbook.md).
 
 Registry IDs: `mtls.certificate_profile`,
-`mtls.live_director_to_gateway`, `mtls.live_gateway_to_director`.
+`mtls.live_director_to_gateway`, `mtls.live_gateway_to_director`,
+`workload_identity.live_director_to_gateway`,
+`workload_identity.live_gateway_to_director`.
 
 ## 5. PostgreSQL
 

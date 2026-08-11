@@ -26,10 +26,17 @@ import { PostgresSessionRepository } from './postgres-session-repository.js';
 import { PostgresTaskRepository } from './postgres-task-repository.js';
 import { PostgresUserSessionAuthenticator } from './postgres-user-session-authenticator.js';
 import { PublicQueryService } from './public-query-service.js';
-import { StaticBearerAuthenticator } from './service-auth.js';
+import {
+  StaticBearerAuthenticator,
+  WorkloadIdentityAuthenticator,
+} from './service-auth.js';
 import { SessionService } from './session-service.js';
 import { TaskService } from './task-service.js';
 import { StaticUserBearerAuthenticator } from './user-auth.js';
+import {
+  Ed25519WorkloadTokenIssuer,
+  Ed25519WorkloadTokenVerifier,
+} from './workload-identity.js';
 
 async function main(): Promise<void> {
   const config = loadDirectorConfig();
@@ -67,9 +74,23 @@ async function main(): Promise<void> {
             rejectUnauthorized: true,
           },
         });
+  const outboundWorkloadIssuer =
+    config.serviceIdentity.mode === 'workload'
+      ? new Ed25519WorkloadTokenIssuer({
+          issuer: 'director-api',
+          audience: 'agent-gateway',
+          keyId: config.serviceIdentity.signingKeyId,
+          privateKeyBase64: config.serviceIdentity.signingPrivateKeyBase64,
+          ttlSeconds: config.serviceIdentity.tokenTtlSeconds,
+        })
+      : undefined;
   const agentGateway = new HttpAgentGatewayClient({
     baseUrl: config.gatewayBaseUrl,
-    tokenProvider: () => config.outboundGatewayToken,
+    tokenProvider: () =>
+      outboundWorkloadIssuer?.issue() ??
+      (config.serviceIdentity.mode === 'static-development'
+        ? config.serviceIdentity.outboundToken
+        : (() => { throw new Error('Director workload token issuer is unavailable.'); })()),
     timeoutMs: config.gatewayRequestTimeoutMs,
     allowHttpForDevelopment: config.allowInsecureDevelopment,
     ...(gatewayDispatcher === undefined ? {} : { dispatcher: gatewayDispatcher }),
@@ -159,11 +180,21 @@ async function main(): Promise<void> {
       await Promise.all([database.query('SELECT 1'), documentStore.checkReady()]);
     },
     trustedProxies: config.trustedProxyCidrs,
-    authenticator: new StaticBearerAuthenticator({
-      token: config.inboundGatewayToken,
-      requireMutualTls: !config.allowInsecureDevelopment,
-      allowedPeerCommonNames: config.tls?.allowedPeerCommonNames ?? [],
-    }),
+    authenticator:
+      config.serviceIdentity.mode === 'workload'
+        ? new WorkloadIdentityAuthenticator({
+            verifier: new Ed25519WorkloadTokenVerifier({
+              issuer: 'agent-gateway',
+              audience: 'director-api',
+              keys: config.serviceIdentity.verificationKeys,
+            }),
+            requireMutualTls: !config.allowInsecureDevelopment,
+            allowedPeerCommonNames: config.tls?.allowedPeerCommonNames ?? [],
+          })
+        : new StaticBearerAuthenticator({
+            token: config.serviceIdentity.inboundToken,
+            requireMutualTls: false,
+          }),
     publicApi: {
       memoryIngest: new MemoryIngestService({
         repository: new PostgresMemoryIngestRepository(database),

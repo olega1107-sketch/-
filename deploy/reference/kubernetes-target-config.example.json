@@ -37,6 +37,11 @@
     "scopes": ["openid", "profile", "email"],
     "id_token_signing_algorithm": "RS256"
   },
+  "workload_identity": {
+    "director_signing_key_id": "director-2026-08-a",
+    "gateway_signing_key_id": "gateway-2026-08-a",
+    "token_ttl_seconds": 60
+  },
   "internal_provider": {
     "origin": "https://inference.corp.example.invalid",
     "models": ["approved-internal-model"]
@@ -59,7 +64,8 @@
   ],
   "secrets": {
     "image_pull": "dirizhor-registry-auth",
-    "service_tokens": "dirizhor-service-tokens",
+    "director_workload_identity": "dirizhor-director-workload-identity",
+    "gateway_workload_identity": "dirizhor-gateway-workload-identity",
     "director_runtime": "dirizhor-director-runtime",
     "director_tls": "dirizhor-director-tls",
     "director_gateway_client_tls": "dirizhor-director-gateway-client-tls",

@@ -38,7 +38,7 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
   inventory и последовательность migration-before-workloads;
 - `scripts/target-canary.mjs`, `target-canary-config.example.json` и
   `target-canary-runbook.md` — fail-closed live DNS/TLS, edge, OIDC, two-way
-  mTLS+Bearer и exact-session-scope evidence runner;
+  mTLS+short-lived-workload-token и exact-session-scope evidence runner;
 - `scripts/application-canary.mjs`, `application-canary-config.example.json` и
   `application-canary-runbook.md` — отдельный least-privilege mutating public
   workflow, confirmation replay и proposed `application.primary_canary` evidence;
@@ -146,11 +146,12 @@ Director runtime credential не может менять migration registry и �
 Runtime credentials поддерживают либо `NAME`, либо `NAME_FILE`; одновременное
 задание запрещено. Для production рекомендуется `*_FILE` с read-only mount:
 
-- Director: `DATABASE_URL`, `DIRECTOR_GATEWAY_TOKEN`,
-  `GATEWAY_DIRECTOR_TOKEN`, `DIRECTOR_CAPABILITY_KEY_BASE64`,
+- Director: `DATABASE_URL`, `DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64`,
+  `GATEWAY_WORKLOAD_VERIFY_KEYS_JSON`, `DIRECTOR_CAPABILITY_KEY_BASE64`,
   `DIRECTOR_OIDC_CLIENT_SECRET`, `DIRECTOR_PUBLIC_USER_TOKEN`;
-- Gateway: `GATEWAY_SPOOL_KEY_BASE64`, `DIRECTOR_SERVICE_TOKEN`,
-  `GATEWAY_DIRECTOR_TOKEN`, `OPENAI_API_KEY`, `INTERNAL_PROVIDER_TOKEN`.
+- Gateway: `GATEWAY_SPOOL_KEY_BASE64`,
+  `GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64`,
+  `DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON`, `OPENAI_API_KEY`, `INTERNAL_PROVIDER_TOKEN`.
 
 Например `DIRECTOR_OIDC_CLIENT_SECRET_FILE=/run/secrets/oidc-client-secret`.
 Loader удаляет ровно один завершающий newline и отклоняет пустые, multiline и
@@ -224,7 +225,7 @@ node scripts/target-canary.mjs \
 mTLS направлений и OIDC discovery. Он не объявляет пройденными полный browser
 canary или mutating application scenario. Условия, secret boundary и stop-ship
 критерии описаны в
-[automated target canary v1](target-canary-runbook.md).
+[automated target canary v2](target-canary-runbook.md).
 
 После успешного target subset полный mutating workflow выполняется отдельным
 процессом, которому не передаются service identities:

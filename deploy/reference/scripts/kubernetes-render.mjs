@@ -72,7 +72,7 @@ export function validateKubernetesTargetConfig(config) {
   assertObject(config, 'config');
   assertExactKeys(config, [
     'schema_version', 'deployment_id', 'namespace', 'kubernetes_version',
-    'images', 'replicas', 'public', 'networking', 'oidc', 'internal_provider', 'agent_routes',
+    'images', 'replicas', 'public', 'networking', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
     'secrets', 'storage', 'resources',
   ], 'config');
   if (config.schema_version !== 1) throw new Error('Unsupported Kubernetes target schema.');
@@ -88,6 +88,7 @@ export function validateKubernetesTargetConfig(config) {
   validatePublic(config.public);
   validateNetworking(config.networking);
   validateOidc(config.oidc, config.public.host);
+  validateWorkloadIdentity(config.workload_identity);
   validateInternalProvider(config.internal_provider);
   validateAgentRoutes(config.agent_routes, config.internal_provider.models);
   validateSecrets(config.secrets);
@@ -299,8 +300,8 @@ function directorDeployment(config) {
       secretFileEnv('DATABASE_URL_FILE', '/run/secrets/director-runtime/database-url'),
       secretFileEnv('DIRECTOR_CAPABILITY_KEY_BASE64_FILE', '/run/secrets/director-runtime/capability-key-base64'),
       secretFileEnv('DIRECTOR_OIDC_CLIENT_SECRET_FILE', '/run/secrets/director-runtime/oidc-client-secret'),
-      secretFileEnv('DIRECTOR_GATEWAY_TOKEN_FILE', '/run/secrets/service-tokens/gateway-to-director'),
-      secretFileEnv('GATEWAY_DIRECTOR_TOKEN_FILE', '/run/secrets/service-tokens/director-to-gateway'),
+      secretFileEnv('DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE', '/run/secrets/workload-identity/signing-private-key-base64'),
+      secretFileEnv('GATEWAY_WORKLOAD_VERIFY_KEYS_JSON_FILE', '/run/secrets/workload-identity/gateway-verification-keys-json'),
     ],
     ports: [{ name: 'https', containerPort: 8444, protocol: 'TCP' }],
     resources: config.resources.director,
@@ -311,7 +312,7 @@ function directorDeployment(config) {
     volumeMounts: [
       { name: 'documents', mountPath: '/var/lib/dirizhor/documents' },
       { name: 'director-runtime', mountPath: '/run/secrets/director-runtime', readOnly: true },
-      { name: 'service-tokens', mountPath: '/run/secrets/service-tokens', readOnly: true },
+      { name: 'workload-identity', mountPath: '/run/secrets/workload-identity', readOnly: true },
       { name: 'director-tls', mountPath: '/run/secrets/director-tls', readOnly: true },
       { name: 'gateway-client-tls', mountPath: '/run/secrets/gateway-client-tls', readOnly: true },
       { name: 'postgres-ca', mountPath: '/run/secrets/postgres', readOnly: true },
@@ -320,7 +321,7 @@ function directorDeployment(config) {
   return deployment(config, 'director', 1, container, [
     pvcVolume('documents', 'dirizhor-director-data'),
     secretVolume('director-runtime', config.secrets.director_runtime),
-    secretVolume('service-tokens', config.secrets.service_tokens),
+    secretVolume('workload-identity', config.secrets.director_workload_identity),
     secretVolume('director-tls', config.secrets.director_tls),
     secretVolume('gateway-client-tls', config.secrets.director_gateway_client_tls),
     secretVolume('postgres-ca', config.secrets.postgres_ca),
@@ -341,8 +342,8 @@ function gatewayDeployment(config) {
       secretFileEnv('GATEWAY_SPOOL_KEY_BASE64_FILE', '/run/secrets/gateway-runtime/spool-key-base64'),
       secretFileEnv('OPENAI_API_KEY_FILE', '/run/secrets/gateway-runtime/openai-api-key'),
       secretFileEnv('INTERNAL_PROVIDER_TOKEN_FILE', '/run/secrets/gateway-runtime/internal-provider-token'),
-      secretFileEnv('DIRECTOR_SERVICE_TOKEN_FILE', '/run/secrets/service-tokens/gateway-to-director'),
-      secretFileEnv('GATEWAY_DIRECTOR_TOKEN_FILE', '/run/secrets/service-tokens/director-to-gateway'),
+      secretFileEnv('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE', '/run/secrets/workload-identity/signing-private-key-base64'),
+      secretFileEnv('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE', '/run/secrets/workload-identity/director-verification-keys-json'),
     ],
     ports: [{ name: 'https', containerPort: 8443, protocol: 'TCP' }],
     resources: config.resources.gateway,
@@ -353,7 +354,7 @@ function gatewayDeployment(config) {
     volumeMounts: [
       { name: 'state', mountPath: '/var/lib/dirizhor/gateway' },
       { name: 'gateway-runtime', mountPath: '/run/secrets/gateway-runtime', readOnly: true },
-      { name: 'service-tokens', mountPath: '/run/secrets/service-tokens', readOnly: true },
+      { name: 'workload-identity', mountPath: '/run/secrets/workload-identity', readOnly: true },
       { name: 'gateway-tls', mountPath: '/run/secrets/gateway-tls', readOnly: true },
       { name: 'director-client-tls', mountPath: '/run/secrets/director-client-tls', readOnly: true },
       { name: 'gateway-probe-tls', mountPath: '/run/secrets/gateway-probe-tls', readOnly: true },
@@ -363,7 +364,7 @@ function gatewayDeployment(config) {
   return deployment(config, 'gateway', 1, container, [
     pvcVolume('state', 'dirizhor-gateway-data'),
     secretVolume('gateway-runtime', config.secrets.gateway_runtime),
-    secretVolume('service-tokens', config.secrets.service_tokens),
+    secretVolume('workload-identity', config.secrets.gateway_workload_identity),
     secretVolume('gateway-tls', config.secrets.gateway_tls),
     secretVolume('director-client-tls', config.secrets.gateway_director_client_tls),
     secretVolume('gateway-probe-tls', config.secrets.gateway_probe_client_tls),
@@ -523,6 +524,8 @@ function directorEnvironment(config, names) {
     DIRECTOR_TLS_KEY_PATH: '/run/secrets/director-tls/tls.key',
     DIRECTOR_TLS_CA_PATH: '/run/secrets/director-tls/ca.crt',
     DIRECTOR_ALLOWED_PEER_CNS: 'agent-gateway',
+    DIRECTOR_WORKLOAD_SIGNING_KEY_ID: config.workload_identity.director_signing_key_id,
+    DIRECTOR_WORKLOAD_TOKEN_TTL_SECONDS: String(config.workload_identity.token_ttl_seconds),
     DIRECTOR_GATEWAY_CLIENT_CERT_PATH: '/run/secrets/gateway-client-tls/tls.crt',
     DIRECTOR_GATEWAY_CLIENT_KEY_PATH: '/run/secrets/gateway-client-tls/tls.key',
     DIRECTOR_GATEWAY_CA_PATH: '/run/secrets/gateway-client-tls/ca.crt',
@@ -552,6 +555,8 @@ function gatewayEnvironment(config, names) {
     GATEWAY_TLS_KEY_PATH: '/run/secrets/gateway-tls/tls.key',
     GATEWAY_TLS_CA_PATH: '/run/secrets/gateway-tls/ca.crt',
     GATEWAY_ALLOWED_PEER_CNS: 'director-api,gateway-probe',
+    GATEWAY_WORKLOAD_SIGNING_KEY_ID: config.workload_identity.gateway_signing_key_id,
+    GATEWAY_WORKLOAD_TOKEN_TTL_SECONDS: String(config.workload_identity.token_ttl_seconds),
     GATEWAY_DIRECTOR_CLIENT_CERT_PATH: '/run/secrets/director-client-tls/tls.crt',
     GATEWAY_DIRECTOR_CLIENT_KEY_PATH: '/run/secrets/director-client-tls/tls.key',
     GATEWAY_DIRECTOR_CA_PATH: '/run/secrets/director-client-tls/ca.crt',
@@ -734,7 +739,7 @@ function validateAgentRoutes(routes, internalModels) {
 function validateSecrets(secrets) {
   assertObject(secrets, 'secrets');
   const keys = [
-    'image_pull', 'service_tokens', 'director_runtime', 'director_tls',
+    'image_pull', 'director_workload_identity', 'gateway_workload_identity', 'director_runtime', 'director_tls',
     'director_gateway_client_tls', 'gateway_runtime', 'gateway_tls',
     'gateway_director_client_tls', 'gateway_probe_client_tls', 'edge_tls',
     'gateway_internal_provider_tls', 'edge_director_ca', 'postgres_ca', 'migration_database',
@@ -742,6 +747,25 @@ function validateSecrets(secrets) {
   assertExactKeys(secrets, keys, 'secrets');
   if (new Set(Object.values(secrets)).size !== keys.length || Object.values(secrets).some((name) => !dnsLabelPattern.test(name))) {
     throw new Error('Secret object names must be unique DNS labels.');
+  }
+}
+
+function validateWorkloadIdentity(workloadIdentity) {
+  assertObject(workloadIdentity, 'workload_identity');
+  assertExactKeys(
+    workloadIdentity,
+    ['director_signing_key_id', 'gateway_signing_key_id', 'token_ttl_seconds'],
+    'workload_identity',
+  );
+  if (
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workloadIdentity.director_signing_key_id) ||
+    !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(workloadIdentity.gateway_signing_key_id) ||
+    workloadIdentity.director_signing_key_id === workloadIdentity.gateway_signing_key_id ||
+    !Number.isSafeInteger(workloadIdentity.token_ttl_seconds) ||
+    workloadIdentity.token_ttl_seconds < 10 ||
+    workloadIdentity.token_ttl_seconds > 300
+  ) {
+    throw new Error('Workload identity key IDs or token TTL are invalid.');
   }
 }
 

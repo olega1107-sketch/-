@@ -85,11 +85,11 @@ AI-результат, confirmation flow и внутреннюю Director-сто
   `context_set_hash`, request fingerprint, task transitions и dispatch audit;
 - детерминированный opaque capability token на HMAC-SHA-256: в БД
   хранится только его hash, а retry восстанавливает тот же token;
-- HTTP dispatch в Agent Gateway с bearer, origin-scoped outbound mTLS,
+- HTTP dispatch в Agent Gateway с короткоживущим Ed25519 workload token, origin-scoped outbound mTLS,
   capability, idempotency key и проверкой receipt; при сетевом сбое frozen run
   остаётся в `queued` для retry;
 - Fastify ingress для `context-bundle:redeem` и Gateway events с TypeBox-схемами;
-- service bearer и обязательный mTLS для внутренних маршрутов в защищённом режиме;
+- issuer/audience/expiry-bound workload identity и обязательный mTLS для внутренних маршрутов в защищённом режиме;
 - `/health/live` и `/health/ready`: readiness проверяет PostgreSQL и read/write
   доступ к Document Store, не раскрывая exception details;
 - versioned database migration runner с immutable checksum, session advisory
@@ -202,6 +202,9 @@ Fallback принимает любой `agent_type` и поэтому запре
 - `DIRECTOR_TLS_CA_PATH` — CA для проверки клиентского сертификата;
 - `DIRECTOR_ALLOWED_PEER_CNS` — непустой список разрешённых CN, по умолчанию
   `agent-gateway`;
+- `DIRECTOR_WORKLOAD_SIGNING_KEY_ID` и
+  `DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64(_FILE)`;
+- `GATEWAY_WORKLOAD_VERIFY_KEYS_JSON(_FILE)` — public Ed25519 keyset Gateway;
 - `DIRECTOR_AGENT_ROUTES_JSON` — непустой массив точных маршрутов для разрешённых
   `agent_type`; одинаковые `agent_type` и fallback отклоняются при старте.
 
@@ -287,8 +290,9 @@ HTTPS listener запрашивает клиентский сертификат,
 используют TLS и user bearer без клиентского сертификата.
 
 Runtime credentials принимают ровно один источник: `NAME` или `NAME_FILE`.
-Mounted files поддерживаются для `DATABASE_URL`, `DIRECTOR_GATEWAY_TOKEN`,
-`GATEWAY_DIRECTOR_TOKEN`, `DIRECTOR_CAPABILITY_KEY_BASE64`,
+Mounted files поддерживаются для `DATABASE_URL`,
+`DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64`, `GATEWAY_WORKLOAD_VERIFY_KEYS_JSON`,
+`DIRECTOR_CAPABILITY_KEY_BASE64`,
 `DIRECTOR_OIDC_CLIENT_SECRET` и development-only `DIRECTOR_PUBLIC_USER_TOKEN`.
 Одновременное задание, пустые/multiline values и NUL отклоняются при старте.
 
@@ -308,7 +312,8 @@ database доказывает, что production startup отклоняет dirt
 
 ## Ограничения reference runtime
 
-- static bearer не заменяет workload identity с короткоживущими токенами;
+- signing private key загружается при старте; автоматическая выдача ключа через
+  внешнюю workload-identity platform и hot reload пока не реализованы;
 - local session issuance, отзыв текущей session и один corporate OIDC provider
   реализованы, но refresh token, password reset/change, отзыв всех сессий,
   SAML, multi-provider login, JIT/linking API и IdP logout ещё отсутствуют;

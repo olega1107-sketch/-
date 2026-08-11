@@ -185,8 +185,8 @@ describe('Director runtime configuration', () => {
   it('loads runtime and OIDC secrets from mounted files', () => {
     const mounted: Record<string, string> = {
       '/run/secrets/database-url': 'postgresql://mounted/dirizhor\n',
-      '/run/secrets/inbound-token': 'mounted-inbound-token\n',
-      '/run/secrets/outbound-token': 'mounted-outbound-token\n',
+      '/run/secrets/signing-key': `${Buffer.alloc(48, 0x52).toString('base64')}\n`,
+      '/run/secrets/verify-keys': `${verificationKeyset('gateway-key-mounted')}\n`,
       '/run/secrets/capability-key': `${Buffer.alloc(32, 0x5a).toString('base64')}\n`,
       '/run/secrets/oidc-client-secret': 'mounted-oidc-secret\n',
     };
@@ -196,10 +196,10 @@ describe('Director runtime configuration', () => {
         ...validOidcEnvironment(),
         DATABASE_URL: undefined,
         DATABASE_URL_FILE: '/run/secrets/database-url',
-        DIRECTOR_GATEWAY_TOKEN: undefined,
-        DIRECTOR_GATEWAY_TOKEN_FILE: '/run/secrets/inbound-token',
-        GATEWAY_DIRECTOR_TOKEN: undefined,
-        GATEWAY_DIRECTOR_TOKEN_FILE: '/run/secrets/outbound-token',
+        DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64: undefined,
+        DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE: '/run/secrets/signing-key',
+        GATEWAY_WORKLOAD_VERIFY_KEYS_JSON: undefined,
+        GATEWAY_WORKLOAD_VERIFY_KEYS_JSON_FILE: '/run/secrets/verify-keys',
         DIRECTOR_CAPABILITY_KEY_BASE64: undefined,
         DIRECTOR_CAPABILITY_KEY_BASE64_FILE: '/run/secrets/capability-key',
         DIRECTOR_OIDC_CLIENT_SECRET: undefined,
@@ -210,8 +210,10 @@ describe('Director runtime configuration', () => {
 
     expect(config).toMatchObject({
       databaseUrl: 'postgresql://mounted/dirizhor',
-      inboundGatewayToken: 'mounted-inbound-token',
-      outboundGatewayToken: 'mounted-outbound-token',
+      serviceIdentity: {
+        mode: 'workload',
+        signingPrivateKeyBase64: Buffer.alloc(48, 0x52).toString('base64'),
+      },
       capabilityKeyBase64: Buffer.alloc(32, 0x5a).toString('base64'),
       oidcAuthentication: { clientSecret: 'mounted-oidc-secret' },
     });
@@ -340,11 +342,19 @@ function baseEnvironment(): NodeJS.ProcessEnv {
   return {
     DATABASE_URL: 'postgresql://director.test/dirizhor',
     DOCUMENT_STORE_ROOT: '/var/lib/director/documents',
-    DIRECTOR_GATEWAY_TOKEN: 'gateway-to-director-token',
     GATEWAY_BASE_URL: 'https://gateway.internal',
-    GATEWAY_DIRECTOR_TOKEN: 'director-to-gateway-token',
+    DIRECTOR_WORKLOAD_SIGNING_KEY_ID: 'director-key-2026-08',
+    DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64: Buffer.alloc(48, 0x51).toString('base64'),
+    GATEWAY_WORKLOAD_VERIFY_KEYS_JSON: verificationKeyset('gateway-key-2026-08'),
     DIRECTOR_CAPABILITY_KEY_BASE64: Buffer.alloc(32, 0x4a).toString('base64'),
   };
+}
+
+function verificationKeyset(kid: string): string {
+  return JSON.stringify({
+    schema_version: 1,
+    keys: [{ kid, public_key_base64: Buffer.alloc(44, 0x53).toString('base64') }],
+  });
 }
 
 function validRoutes(): string {

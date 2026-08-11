@@ -1,8 +1,9 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "execution_id": "CHG-123-target-canary-01",
   "environment": "production-pilot",
   "request_timeout_ms": 10000,
+  "workload_token_ttl_seconds": 60,
   "public": {
     "origin": "https://dirizhor.example.invalid",
     "ca_path": null
@@ -29,7 +30,8 @@
     "ca_path": "/run/secrets/director-to-gateway/ca.crt",
     "client_certificate_path": "/run/secrets/director-to-gateway/tls.crt",
     "client_private_key_path": "/run/secrets/director-to-gateway/tls.key",
-    "bearer_token_file": "/run/secrets/director-to-gateway/service-token"
+    "workload_signing_key_id": "director-2026-08-a",
+    "workload_signing_private_key_file": "/run/secrets/director-to-gateway/signing-private-key-base64"
   },
   "gateway_to_director": {
     "origin": "https://dirizhor-director.dirizhor-production.svc.cluster.local:8444",
@@ -37,6 +39,7 @@
     "ca_path": "/run/secrets/gateway-to-director/ca.crt",
     "client_certificate_path": "/run/secrets/gateway-to-director/tls.crt",
     "client_private_key_path": "/run/secrets/gateway-to-director/tls.key",
-    "bearer_token_file": "/run/secrets/gateway-to-director/service-token"
+    "workload_signing_key_id": "gateway-2026-08-a",
+    "workload_signing_private_key_file": "/run/secrets/gateway-to-director/signing-private-key-base64"
   }
 }

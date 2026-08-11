@@ -80,7 +80,10 @@ pnpm dev
 - `GATEWAY_TLS_KEY_PATH` — private key Gateway;
 - `GATEWAY_TLS_CA_PATH` — CA для проверки клиентского сертификата;
 - `GATEWAY_ALLOWED_PEER_CNS` — непустой список разрешенных CN, по умолчанию
-  `director-api`.
+  `director-api`;
+- `GATEWAY_WORKLOAD_SIGNING_KEY_ID` и
+  `GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64(_FILE)`;
+- `DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON(_FILE)` — public Ed25519 keyset Director.
 
 Outbound Gateway -> Director всегда использует mTLS. По умолчанию применяются
 service certificate/key/CA выше. Для отдельных client credentials задаются
@@ -96,27 +99,28 @@ origin, а неполная конфигурация блокирует startup.
 
 Runtime credentials принимают ровно один источник: `NAME` или `NAME_FILE`.
 Mounted files поддерживаются для `GATEWAY_SPOOL_KEY_BASE64`,
-`DIRECTOR_SERVICE_TOKEN`, `GATEWAY_DIRECTOR_TOKEN`, `OPENAI_API_KEY` и
+`GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64`,
+`DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON`, `OPENAI_API_KEY` и
 `INTERNAL_PROVIDER_TOKEN`.
 Одновременное задание, пустые/multiline values и NUL отклоняются при старте.
 
 Node HTTPS server запрашивает клиентский сертификат и отклоняет
-неавторизованные соединения. Входной bearer дополнительно сравнивается в
-constant time.
+неавторизованные соединения. Входной Ed25519 workload token дополнительно
+проверяется по signature, `kid`, issuer, audience и сроку действия.
 
 ## Ограничения reference runtime
 
 - file store и keyed lock рассчитаны на один процесс и один экземпляр;
 - локальный outbox заменяет внешнюю durable queue;
-- static inbound/outbound bearer предназначен только для reference запуска;
+- static inbound/outbound bearer разрешён только при `GATEWAY_ALLOW_INSECURE_DEV=true`;
 - нет provider fallback, streaming, tools, retrieval, billing и UI;
 - terminal metadata не очищается по TTL автоматически;
 - ephemeral-CA smoke проходит в обоих направлениях, но конкретные production
   CA/SAN/EKU ещё требуют deployment test;
 - нет production telemetry, KMS rotation и distributed lease.
 
-Для production нужны PostgreSQL-backed execution store/outbox, workload
-identity с короткоживущими токенами, KMS-managed keys, distributed worker lease,
+Для production нужны PostgreSQL-backed execution store/outbox, внешняя выдача и
+hot rotation workload signing keys, KMS-managed keys, distributed worker lease,
 bounded cleanup и операционная observability. Эти замены проходят через порты
 `ExecutionStore`, `DirectorClient`, `ServiceAuthenticator` и `ProviderAdapter`,
 не меняя HTTP-протокол.

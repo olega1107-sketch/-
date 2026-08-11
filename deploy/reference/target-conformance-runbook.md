@@ -61,13 +61,16 @@ node scripts/release-evidence.mjs /secure/change/CHG-123/release-evidence CHG-12
 Collector не наследует application secrets, удаляет старые `dist`, использует
 `pnpm install --frozen-lockfile --offline`, сохраняет logs/manifests с mode
 `0600`, хеширует source tree до и после запуска, package file, lockfile и каждый
-build artifact. Изменение workspace во время сбора блокирует результат. `PASS`
+build artifact. Отдельный `release.deployment` запускает все Node tests в
+`deploy/reference/test` и сохраняет hash проверенного tooling tree. Изменение
+workspace во время сбора блокирует результат. `PASS`
 переносится в основной evidence document вместе с выданным `artifact:` reference
 только для того же source revision и опубликованного artifact. Image digests в
 основном документе берутся из registry после публикации, а не вычисляются из
 локального `dist`.
 
-Registry IDs: `release.director`, `release.gateway`, `release.ui`.
+Registry IDs: `release.director`, `release.gateway`, `release.ui`,
+`release.deployment`.
 
 До OCI build выполняется `node scripts/container-preflight.mjs` с тремя
 approved base image references, закреплёнными `@sha256`, и точной версией pnpm.

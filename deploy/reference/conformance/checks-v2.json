@@ -4,6 +4,7 @@
     { "id": "release.director", "category": "release", "stop_ship": true },
     { "id": "release.gateway", "category": "release", "stop_ship": true },
     { "id": "release.ui", "category": "release", "stop_ship": true },
+    { "id": "release.deployment", "category": "release", "stop_ship": true },
     { "id": "deployment.kubernetes_contract", "category": "deployment", "stop_ship": true },
     { "id": "edge.nginx_config", "category": "edge", "stop_ship": true },
     { "id": "edge.external_contract", "category": "edge", "stop_ship": true },

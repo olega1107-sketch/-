@@ -20,6 +20,7 @@ const allowedCheckIds = new Set([
   'release.director',
   'release.gateway',
   'release.ui',
+  'release.deployment',
 ]);
 const ignoredSourceDirectories = new Set([
   '.git',
@@ -34,6 +35,7 @@ export const releaseProfiles = [
   {
     id: 'release.director',
     directory: 'director/reference',
+    artifact_kind: 'build',
     commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
       ['pnpm', ['db:checksums']],
@@ -46,6 +48,7 @@ export const releaseProfiles = [
   {
     id: 'release.gateway',
     directory: 'gateway/reference',
+    artifact_kind: 'build',
     commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
       ['pnpm', ['check']],
@@ -57,11 +60,20 @@ export const releaseProfiles = [
   {
     id: 'release.ui',
     directory: 'ui/reference',
+    artifact_kind: 'build',
     commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
       ['pnpm', ['check']],
       ['pnpm', ['test', '--', '--maxWorkers=2']],
       ['pnpm', ['build']],
+    ],
+  },
+  {
+    id: 'release.deployment',
+    directory: 'deploy/reference',
+    artifact_kind: 'source',
+    commands: [
+      ['node', ['--test', 'test/*.test.mjs']],
     ],
   },
 ];
@@ -158,8 +170,10 @@ export async function collectReleaseEvidence({
 
 async function collectProfile({ root, output, executionId, profile, runner }) {
   const workingDirectory = safeWorkspacePath(root, profile.directory);
-  await assertPackageDirectory(workingDirectory);
-  await rm(path.join(workingDirectory, 'dist'), { recursive: true, force: true });
+  await assertProfileDirectory(workingDirectory, profile.artifact_kind);
+  if (profile.artifact_kind === 'build') {
+    await rm(path.join(workingDirectory, 'dist'), { recursive: true, force: true });
+  }
   const commandRecords = [];
   const logParts = [];
   let status = 'PASS';
@@ -198,7 +212,9 @@ async function collectProfile({ root, output, executionId, profile, runner }) {
   const observedAt = new Date().toISOString();
   let artifact = null;
   if (status === 'PASS') {
-    artifact = await buildArtifactEvidence(workingDirectory, output, slug);
+    artifact = profile.artifact_kind === 'build'
+      ? await buildArtifactEvidence(workingDirectory, output, slug)
+      : await sourceArtifactEvidence(workingDirectory, output, slug);
   }
 
   return {
@@ -238,6 +254,28 @@ async function buildArtifactEvidence(workingDirectory, output, slug) {
     build_file_count: buildTree.files.length,
     build_total_bytes: buildTree.totalBytes,
     build_tree_sha256: artifactDocument.build_tree_sha256,
+  };
+}
+
+async function sourceArtifactEvidence(workingDirectory, output, slug) {
+  const sourceTree = await directoryManifest(workingDirectory);
+  const artifactDocument = {
+    schema_version: 1,
+    artifact_kind: 'source',
+    source_file_count: sourceTree.files.length,
+    source_total_bytes: sourceTree.totalBytes,
+    source_tree_sha256: canonicalHash(sourceTree.files),
+    files: sourceTree.files,
+  };
+  const artifactName = `${slug}-artifact.json`;
+  await writePrivateJson(path.join(output, artifactName), artifactDocument);
+  return {
+    artifact_kind: 'source',
+    manifest_file: artifactName,
+    manifest_sha256: canonicalHash(artifactDocument),
+    source_file_count: sourceTree.files.length,
+    source_total_bytes: sourceTree.totalBytes,
+    source_tree_sha256: artifactDocument.source_tree_sha256,
   };
 }
 
@@ -398,6 +436,7 @@ function validateProfiles(profiles) {
       typeof profile.directory !== 'string' ||
       !safeRelativePathPattern.test(profile.directory) ||
       path.isAbsolute(profile.directory) ||
+      !['build', 'source'].includes(profile.artifact_kind) ||
       !Array.isArray(profile.commands) ||
       profile.commands.length === 0
     ) {
@@ -407,7 +446,7 @@ function validateProfiles(profiles) {
       if (
         !Array.isArray(command) ||
         command.length !== 2 ||
-        command[0] !== 'pnpm' ||
+        !['node', 'pnpm'].includes(command[0]) ||
         !Array.isArray(command[1]) ||
         command[1].some((argument) => typeof argument !== 'string')
       ) {
@@ -418,11 +457,12 @@ function validateProfiles(profiles) {
   }
 }
 
-async function assertPackageDirectory(directory) {
+async function assertProfileDirectory(directory, artifactKind) {
   const metadata = await lstat(directory).catch(() => undefined);
   if (metadata === undefined || !metadata.isDirectory() || metadata.isSymbolicLink()) {
-    throw new Error('Release package directory is unavailable.');
+    throw new Error('Release profile directory is unavailable.');
   }
+  if (artifactKind !== 'build') return;
   await Promise.all([
     lstat(path.join(directory, 'package.json')),
     lstat(path.join(directory, 'pnpm-lock.yaml')),

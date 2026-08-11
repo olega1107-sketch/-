@@ -4,7 +4,17 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
 
-import { collectReleaseEvidence } from '../scripts/release-evidence.mjs';
+import { collectReleaseEvidence, releaseProfiles } from '../scripts/release-evidence.mjs';
+
+test('default profiles make the complete deployment suite a source-hashed release gate', () => {
+  const profile = releaseProfiles.find((candidate) => candidate.id === 'release.deployment');
+  assert.deepEqual(profile, {
+    id: 'release.deployment',
+    directory: 'deploy/reference',
+    artifact_kind: 'source',
+    commands: [['node', ['--test', 'test/*.test.mjs']]],
+  });
+});
 
 test('collector writes private PASS evidence and hashes build output', async () => {
   const fixture = await fixtureWorkspace();
@@ -22,7 +32,7 @@ test('collector writes private PASS evidence and hashes build output', async () 
     assert.equal(manifest.checks[0].artifact.build_file_count, 1);
     assert.match(manifest.checks[0].artifact.build_tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(manifest.collection_sha256, /^sha256:[0-9a-f]{64}$/);
-    assert.equal(manifest.source.file_count, 2);
+    assert.equal(manifest.source.file_count, 3);
     assert.match(manifest.source.tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(output)).mode & 0o777, 0o700);
     for (const file of [
@@ -66,6 +76,33 @@ test('failed command creates FAIL evidence without an artifact claim', async () 
     assert.equal(manifest.checks[0].artifact, null);
     assert.equal(manifest.checks[0].commands.length, 2);
     assert.equal(calls, 2);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('source profile writes a private tooling artifact without package metadata or dist', async () => {
+  const fixture = await fixtureWorkspace();
+  try {
+    const output = path.join(fixture.root, 'evidence-source');
+    const manifest = await collectReleaseEvidence({
+      workspaceRoot: fixture.workspace,
+      outputDirectory: output,
+      executionId: 'CHG-2026-1007',
+      profiles: [fixture.sourceProfile],
+      runner: successfulRunner,
+    });
+
+    const check = manifest.checks[0];
+    assert.equal(check.id, 'release.deployment');
+    assert.equal(check.status, 'PASS');
+    assert.equal(check.artifact.artifact_kind, 'source');
+    assert.equal(check.artifact.source_file_count, 1);
+    assert.match(check.artifact.source_tree_sha256, /^sha256:[0-9a-f]{64}$/);
+    assert.equal(
+      (await stat(path.join(output, 'release-deployment-artifact.json'))).mode & 0o777,
+      0o600,
+    );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
   }
@@ -150,10 +187,13 @@ async function fixtureWorkspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'dirizhor-release-evidence-'));
   const workspace = path.join(root, 'workspace');
   const packageDirectory = path.join(workspace, 'director/reference');
+  const sourceDirectory = path.join(workspace, 'deploy/reference');
   await mkdir(packageDirectory, { recursive: true });
+  await mkdir(sourceDirectory, { recursive: true });
   await Promise.all([
     writeFile(path.join(packageDirectory, 'package.json'), '{"private":true}\n'),
     writeFile(path.join(packageDirectory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
+    writeFile(path.join(sourceDirectory, 'tooling.mjs'), 'export const ready = true;\n'),
   ]);
   return {
     root,
@@ -162,10 +202,17 @@ async function fixtureWorkspace() {
     profile: {
       id: 'release.director',
       directory: 'director/reference',
+      artifact_kind: 'build',
       commands: [
         ['pnpm', ['check']],
         ['pnpm', ['build']],
       ],
+    },
+    sourceProfile: {
+      id: 'release.deployment',
+      directory: 'deploy/reference',
+      artifact_kind: 'source',
+      commands: [['node', ['--test', 'test/*.test.mjs']]],
     },
   };
 }

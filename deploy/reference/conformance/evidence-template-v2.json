@@ -35,6 +35,7 @@
     { "id": "release.director", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "release.gateway", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "release.ui", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
+    { "id": "release.deployment", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "deployment.kubernetes_contract", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "edge.nginx_config", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },
     { "id": "edge.external_contract", "status": "NOT_RUN", "observed_at": null, "evidence_refs": [] },

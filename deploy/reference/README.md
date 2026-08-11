@@ -263,8 +263,10 @@ node scripts/release-evidence.mjs /secure/change/CHG-123/release-evidence CHG-12
 ```
 
 Он фиксирует source-tree до и после запуска, выполняет для трёх компонентов
-frozen offline install, static checks, tests и clean build, затем сохраняет
-private logs, lockfile/package hashes и manifest файлов `dist`. Изменение
+frozen offline install, static checks, tests и clean build, а затем запускает
+полный deployment/conformance suite `test/*.test.mjs`. Для компонентов collector
+сохраняет lockfile/package hashes и manifest файлов `dist`; для deployment tooling
+он сохраняет отдельный source-tree artifact. Все logs/manifests private. Изменение
 workspace во время сбора блокирует evidence. Успех локального запуска не заменяет digest фактически
 опубликованного image/artifact и не закрывает остальные target checks.
 

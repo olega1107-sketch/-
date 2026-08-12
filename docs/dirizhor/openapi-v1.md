@@ -1,5 +1,12 @@
 # OpenAPI 3.1 v1
 
+Полный [`api/openapi-v1.yaml`](../../api/openapi-v1.yaml) описывает целевую
+архитектурную поверхность. Для текущего reference deployment действует более
+узкий исполнимый
+[`api/openapi-pilot-v1.yaml`](../../api/openapi-pilot-v1.yaml). До завершения
+реализации клиенты и pilot acceptance должны опираться на pilot-профиль, а не на
+полный контракт.
+
 Исполнимый контракт Director API зафиксирован в
 [`api/openapi-v1.yaml`](../../api/openapi-v1.yaml). Этот файл является нормативным
 источником для HTTP-путей, методов, DTO, кодов ответа и обязательных

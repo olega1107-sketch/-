@@ -1,6 +1,6 @@
 # Reference UI
 
-Responsive confirmation UI for the Director API. The module is a separate
+Responsive confirmation and decision-history UI for the Director API. The module is a separate
 Vite client and never reads the database, document store, or AI providers
 directly.
 
@@ -16,6 +16,11 @@ directly.
 - opaque-cursor pagination;
 - confirmation details without internal `frozen_payload`;
 - approve/reject dialogs and automatic queue refresh;
+- decision creation in the pilot-safe `draft` or `proposed` states;
+- explicit relationship source rows for memory objects, tasks, agent runs,
+  decisions and open questions;
+- decision lookup by ID and a metadata-only provenance view with related memory
+  objects, agent runs, exact frozen document versions and audit events;
 - responsive desktop and mobile layouts.
 
 ## Development

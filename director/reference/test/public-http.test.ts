@@ -6,6 +6,7 @@ import { buildDirectorApp } from '../src/app.js';
 import { sha256Text } from '../src/canonical.js';
 import { HmacCapabilityTokenIssuer } from '../src/capability-token.js';
 import { ConfirmationService } from '../src/confirmation-service.js';
+import { DecisionService } from '../src/decision-service.js';
 import { DirectorProtocolError } from '../src/errors.js';
 import { MemoryIngestService } from '../src/memory-ingest-service.js';
 import type { IdGenerator } from '../src/memory-ports.js';
@@ -13,6 +14,7 @@ import { PostgresMemoryIngestRepository } from '../src/postgres-memory-ingest-re
 import { PostgresAgentResultRepository } from '../src/postgres-agent-result-repository.js';
 import { PostgresAuthorizationAuditRecorder } from '../src/postgres-authorization-audit-recorder.js';
 import { PostgresConfirmationRepository } from '../src/postgres-confirmation-repository.js';
+import { PostgresDecisionRepository } from '../src/postgres-decision-repository.js';
 import { PostgresPublicQueryRepository } from '../src/postgres-public-query-repository.js';
 import { PostgresTaskRepository } from '../src/postgres-task-repository.js';
 import { PostgresUserSessionAuthenticator } from '../src/postgres-user-session-authenticator.js';
@@ -512,6 +514,89 @@ describe('Public Director HTTP contract', () => {
     });
   });
 
+  it('creates and reads pilot decisions with complete provenance', async () => {
+    ({ fixture, app } = await createApp());
+    const decisionRequestId = '40000000-0000-4000-8000-000000000022';
+    const provenanceRequestId = '40000000-0000-4000-8000-000000000023';
+    const decisionId = '40000000-0000-4000-8000-000000000020';
+
+    const created = await app.inject({
+      method: 'POST',
+      url: '/api/v1/decisions',
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': decisionRequestId,
+      },
+      payload: {
+        project_id: ids.project,
+        title: 'Adopt immutable context',
+        decision_text: 'Use exact document versions for every run.',
+        status: 'proposed',
+        relationships: [
+          {
+            target_type: 'agent_run',
+            target_id: ids.run,
+            relation_type: 'derived_from',
+          },
+        ],
+      },
+    });
+    expect(created.statusCode, created.body).toBe(201);
+    expect(created.json()).toMatchObject({
+      id: decisionId,
+      memory_object_id: '40000000-0000-4000-8000-000000000021',
+      status: 'proposed',
+    });
+
+    const read = await app.inject({
+      method: 'GET',
+      url: `/api/v1/decisions/${decisionId}`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': readRequestId,
+      },
+    });
+    expect(read.statusCode, read.body).toBe(200);
+    expect(read.json()).toMatchObject({ id: decisionId, title: 'Adopt immutable context' });
+
+    const provenance = await app.inject({
+      method: 'GET',
+      url: `/api/v1/decisions/${decisionId}/provenance`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': provenanceRequestId,
+      },
+    });
+    expect(provenance.statusCode, provenance.body).toBe(200);
+    expect(provenance.json()).toMatchObject({
+      provenance_complete: true,
+      decision: { id: decisionId },
+      agent_runs: [{ id: ids.run }],
+      source_versions: [{ document_version_id: ids.documentVersion }],
+    });
+  });
+
+  it('rejects approved decision creation at the pilot transport boundary', async () => {
+    ({ app } = await createApp());
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/decisions',
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': requestId,
+      },
+      payload: {
+        project_id: ids.project,
+        title: 'Premature approval',
+        decision_text: 'This must require a confirmation workflow.',
+        status: 'approved',
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
+  });
+
   it('returns Gateway backpressure in the public error envelope', async () => {
     ({ app } = await createApp(undefined, new RecordingGateway(1)));
     await app.inject({
@@ -789,6 +874,13 @@ async function createApp(
         gateway,
         capabilityTokens: new HmacCapabilityTokenIssuer(Buffer.alloc(32, 0x44)),
         clock: fixture.clock,
+      }),
+      decisions: new DecisionService({
+        repository: new PostgresDecisionRepository(fixture.database),
+        idGenerator: new SequenceIds([
+          '40000000-0000-4000-8000-000000000020',
+          '40000000-0000-4000-8000-000000000021',
+        ]),
       }),
       queries: new PublicQueryService({
         repository: new PostgresPublicQueryRepository(fixture.database),

@@ -20,6 +20,7 @@ vertical slice. Подтвержденная часть архитектуры �
 - [Первая модель данных](docs/dirizhor/data-model-v1.md)
 - [Director API v1](docs/dirizhor/director-api-v1.md)
 - [OpenAPI 3.1 v1](api/openapi-v1.yaml)
+- [Pilot OpenAPI 3.1 v1](api/openapi-pilot-v1.yaml)
 - [Agent Gateway Protocol v1](docs/dirizhor/agent-gateway-v1.md)
 - [Reference Agent Gateway](gateway/reference/README.md)
 - [Reference Director](director/reference/README.md)

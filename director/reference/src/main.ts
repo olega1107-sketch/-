@@ -7,6 +7,7 @@ import { buildDirectorApp } from './app.js';
 import { HmacCapabilityTokenIssuer } from './capability-token.js';
 import { ConfirmationService } from './confirmation-service.js';
 import { loadDirectorConfig } from './config.js';
+import { DecisionService } from './decision-service.js';
 import { assertDatabaseMigrationsCurrent } from './db-migrations.js';
 import { DirectorService } from './director-service.js';
 import { FileDocumentStore } from './file-document-store.js';
@@ -19,6 +20,7 @@ import { PostgresDirectorRepository } from './postgres-director-repository.js';
 import { PostgresMemoryIngestRepository } from './postgres-memory-ingest-repository.js';
 import { PostgresOidcLoginTransactionRepository } from './postgres-oidc-repository.js';
 import { PostgresConfirmationRepository } from './postgres-confirmation-repository.js';
+import { PostgresDecisionRepository } from './postgres-decision-repository.js';
 import { PostgresAgentResultRepository } from './postgres-agent-result-repository.js';
 import { PostgresAuthorizationAuditRecorder } from './postgres-authorization-audit-recorder.js';
 import { PostgresPublicQueryRepository } from './postgres-public-query-repository.js';
@@ -240,6 +242,9 @@ async function main(): Promise<void> {
         capabilityTokens,
         runDeadlineMs: config.agentRunDeadlineMs,
         capabilityTtlMs: config.capabilityTtlMs,
+      }),
+      decisions: new DecisionService({
+        repository: new PostgresDecisionRepository(database),
       }),
       queries: new PublicQueryService({
         repository: new PostgresPublicQueryRepository(database),

@@ -1,13 +1,20 @@
 import {
   ArrowRight,
   AudioLines,
+  Bot,
   CheckCheck,
   ChevronDown,
   Clock3,
+  Database,
   FileCheck2,
+  FileText,
+  GitBranch,
   LogOut,
+  Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
   X,
   createIcons,
@@ -16,7 +23,9 @@ import {
 import {
   ApiError,
   clearSession,
+  createDecision,
   decideConfirmation,
+  getDecisionProvenance,
   localLoginEnabled,
   listConfirmations,
   listProjects,
@@ -25,7 +34,11 @@ import {
   oidcLoginUrl,
   type Confirmation,
   type ConfirmationStatus,
+  type DecisionCreateInput,
+  type DecisionProvenance,
   type Project,
+  type RelationshipEndpointType,
+  type RelationshipType,
 } from './api.js';
 import { expiryLabel, formatDate, operationLabel, shortId, statusLabels } from './format.js';
 import './style.css';
@@ -33,13 +46,20 @@ import './style.css';
 const icons = {
   ArrowRight,
   AudioLines,
+  Bot,
   CheckCheck,
   ChevronDown,
   Clock3,
+  Database,
   FileCheck2,
+  FileText,
+  GitBranch,
   LogOut,
+  Plus,
   RefreshCw,
+  Search,
   ShieldCheck,
+  Trash2,
   TriangleAlert,
   X,
 };
@@ -51,6 +71,9 @@ let nextCursor: string | null = null;
 let pendingCountLabel = '0';
 let pendingDecision: { confirmation: Confirmation; action: 'approve' | 'reject' } | null = null;
 let toastTimer: number | undefined;
+let currentView: 'confirmations' | 'decisions' = 'confirmations';
+let currentDecisionId: string | null = null;
+let sourceRowSequence = 0;
 
 const authView = required<HTMLElement>('auth-view');
 const workspace = required<HTMLElement>('workspace');
@@ -81,13 +104,34 @@ const dialogEyebrow = required<HTMLElement>('dialog-eyebrow');
 const dialogConfirm = required<HTMLButtonElement>('dialog-confirm');
 const dialogIcon = required<HTMLElement>('dialog-icon');
 const toast = required<HTMLElement>('toast');
+const confirmationsView = required<HTMLElement>('confirmations-view');
+const decisionsView = required<HTMLElement>('decisions-view');
+const confirmationsNav = required<HTMLButtonElement>('confirmations-nav');
+const decisionsNav = required<HTMLButtonElement>('decisions-nav');
+const decisionLookupForm = required<HTMLFormElement>('decision-lookup-form');
+const decisionIdInput = required<HTMLInputElement>('decision-id-input');
+const decisionRegion = required<HTMLElement>('decision-region');
+const decisionEmpty = required<HTMLElement>('decision-empty');
+const decisionError = required<HTMLElement>('decision-error');
+const decisionErrorMessage = required<HTMLElement>('decision-error-message');
+const decisionDetail = required<HTMLElement>('decision-detail');
+const newDecisionButton = required<HTMLButtonElement>('new-decision-button');
+const createDecisionDialog = required<HTMLDialogElement>('create-decision-dialog');
+const createDecisionForm = required<HTMLFormElement>('create-decision-form');
+const createDecisionError = required<HTMLElement>('create-decision-error');
+const createDialogClose = required<HTMLButtonElement>('create-dialog-close');
+const createDialogCancel = required<HTMLButtonElement>('create-dialog-cancel');
+const addSourceButton = required<HTMLButtonElement>('add-source-button');
+const sourceList = required<HTMLElement>('source-list');
 
 authForm.addEventListener('submit', (event) => void authenticate(event));
 oidcLogin.href = oidcLoginUrl;
 localLogin.hidden = !localLoginEnabled;
 projectSelect.addEventListener('change', () => {
   updateProjectLabel();
-  void loadQueue(true);
+  currentDecisionId = null;
+  renderNoDecision();
+  void refreshCurrentView();
 });
 projectTrigger.addEventListener('click', () => {
   try {
@@ -96,11 +140,19 @@ projectTrigger.addEventListener('click', () => {
     projectSelect.click();
   }
 });
-refreshButton.addEventListener('click', () => void loadQueue(true));
+refreshButton.addEventListener('click', () => void refreshCurrentView());
 retryButton.addEventListener('click', () => void loadWorkspace());
 moreButton.addEventListener('click', () => void loadQueue(false));
 logoutButton.addEventListener('click', () => void signOut());
 dialog.addEventListener('close', () => void finishDecision());
+confirmationsNav.addEventListener('click', () => selectWorkspaceView('confirmations'));
+decisionsNav.addEventListener('click', () => selectWorkspaceView('decisions'));
+decisionLookupForm.addEventListener('submit', (event) => void lookupDecision(event));
+newDecisionButton.addEventListener('click', () => openCreateDecisionDialog());
+createDialogClose.addEventListener('click', () => createDecisionDialog.close());
+createDialogCancel.addEventListener('click', () => createDecisionDialog.close());
+addSourceButton.addEventListener('click', () => addSourceRow());
+createDecisionForm.addEventListener('submit', (event) => void submitDecision(event));
 document.querySelectorAll<HTMLButtonElement>('.tab').forEach((tab) => {
   tab.addEventListener('click', () => void selectStatus(tab));
 });
@@ -144,7 +196,7 @@ async function loadWorkspace(): Promise<void> {
   try {
     projects = await collectProjects();
     renderProjects();
-    await loadQueue(true);
+    await refreshCurrentView();
   } catch (error) {
     handleRequestError(error);
   } finally {
@@ -178,6 +230,258 @@ function renderProjects(): void {
 
 function updateProjectLabel(): void {
   projectLabel.textContent = projectSelect.selectedOptions[0]?.textContent ?? 'Нет доступных проектов';
+}
+
+function selectWorkspaceView(view: 'confirmations' | 'decisions'): void {
+  currentView = view;
+  confirmationsView.hidden = view !== 'confirmations';
+  decisionsView.hidden = view !== 'decisions';
+  confirmationsNav.classList.toggle('active', view === 'confirmations');
+  decisionsNav.classList.toggle('active', view === 'decisions');
+  if (view === 'confirmations') {
+    void loadQueue(true);
+  }
+}
+
+async function refreshCurrentView(): Promise<void> {
+  if (currentView === 'confirmations') {
+    await loadQueue(true);
+    return;
+  }
+  if (currentDecisionId !== null) {
+    await loadDecision(currentDecisionId);
+  }
+}
+
+async function lookupDecision(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  if (!decisionLookupForm.reportValidity()) return;
+  await loadDecision(decisionIdInput.value.trim());
+}
+
+async function loadDecision(decisionId: string): Promise<void> {
+  setDecisionLoading(true);
+  decisionError.hidden = true;
+  decisionEmpty.hidden = true;
+  try {
+    const provenance = await getDecisionProvenance(decisionId);
+    currentDecisionId = provenance.decision.id;
+    decisionIdInput.value = provenance.decision.id;
+    if (projects.some((project) => project.id === provenance.decision.project_id)) {
+      projectSelect.value = provenance.decision.project_id;
+      updateProjectLabel();
+    }
+    renderDecision(provenance);
+    lastUpdate.textContent = new Intl.DateTimeFormat('ru-RU', {
+      hour: '2-digit', minute: '2-digit',
+    }).format(new Date());
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 401) {
+      clearSession();
+      showAuth();
+      return;
+    }
+    decisionDetail.hidden = true;
+    decisionErrorMessage.textContent = messageFor(error);
+    decisionError.hidden = false;
+  } finally {
+    setDecisionLoading(false);
+  }
+}
+
+function renderDecision(provenance: DecisionProvenance): void {
+  const decision = provenance.decision;
+  const rationale = decision.rationale === null
+    ? ''
+    : `<div class="decision-rationale"><h3>Обоснование</h3><p>${escapeHtml(decision.rationale)}</p></div>`;
+  decisionDetail.innerHTML = `
+    <header class="decision-summary">
+      <div class="decision-summary-copy">
+        <div class="card-topline">
+          <span class="status-badge decision-${escapeHtml(decision.status)}">${escapeHtml(decisionStatusLabel(decision.status))}</span>
+          <span class="sensitivity-label">${escapeHtml(sensitivityLabel(decision.sensitivity_level))}</span>
+        </div>
+        <h2>${escapeHtml(decision.title)}</h2>
+        <p>${escapeHtml(decision.decision_text)}</p>
+        ${rationale}
+      </div>
+      <dl class="decision-identifiers">
+        <div><dt>Решение</dt><dd>${escapeHtml(decision.id)}</dd></div>
+        <div><dt>Карточка памяти</dt><dd>${escapeHtml(decision.memory_object_id)}</dd></div>
+        <div><dt>Создано</dt><dd>${escapeHtml(formatDate(decision.created_at))}</dd></div>
+      </dl>
+    </header>
+    <div class="provenance-grid">
+      ${provenanceSection(
+        'Связи',
+        'git-branch',
+        provenance.relationships.map((relationship) => `
+          <article class="provenance-item">
+            <strong>${escapeHtml(relationLabel(relationship.relation_type))}</strong>
+            <span>${escapeHtml(endpointLabel(relationship.target_type))} · ${escapeHtml(shortId(relationship.target_id))}</span>
+            ${relationship.description === null ? '' : `<p>${escapeHtml(relationship.description)}</p>`}
+          </article>`),
+      )}
+      ${provenanceSection(
+        'Объекты памяти',
+        'database',
+        provenance.related_memory_objects.map((memory) => `
+          <article class="provenance-item">
+            <strong>${escapeHtml(memory.title)}</strong>
+            <span>${escapeHtml(memoryTypeLabel(memory.type))} · ${escapeHtml(shortId(memory.id))}</span>
+          </article>`),
+      )}
+      ${provenanceSection(
+        'Запуски агентов',
+        'bot',
+        provenance.agent_runs.map((run) => `
+          <article class="provenance-item">
+            <strong>${escapeHtml(run.agent_type)} · ${escapeHtml(run.provider)}</strong>
+            <span>${escapeHtml(run.status)} · ${escapeHtml(shortId(run.id))}</span>
+            <p>${escapeHtml(run.deployment_class === 'external' ? 'Внешний контур' : 'Внутренний контур')}</p>
+          </article>`),
+      )}
+      ${provenanceSection(
+        'Точные версии источников',
+        'file-text',
+        provenance.source_versions.map((source) => `
+          <article class="provenance-item source-version">
+            <strong>${escapeHtml(source.memory_object_title)} · v${source.version_number}</strong>
+            <span>${escapeHtml(source.file_name)} · ${source.size_bytes.toLocaleString('ru-RU')} байт</span>
+            <code>${escapeHtml(source.content_hash)}</code>
+            <p>${escapeHtml(source.access_reason)}</p>
+          </article>`),
+      )}
+      ${provenanceSection(
+        'Аудит',
+        'file-check-2',
+        provenance.audit_events.map((audit) => `
+          <article class="provenance-item">
+            <strong>${escapeHtml(audit.action)}</strong>
+            <span>${escapeHtml(formatDate(audit.created_at))} · ${escapeHtml(shortId(audit.request_id))}</span>
+          </article>`),
+      )}
+    </div>`;
+  decisionDetail.hidden = false;
+  decisionEmpty.hidden = true;
+  decisionError.hidden = true;
+  createIcons({ icons });
+}
+
+function provenanceSection(title: string, icon: string, items: string[]): string {
+  return `
+    <section class="provenance-section">
+      <header><i data-lucide="${icon}"></i><h3>${escapeHtml(title)}</h3><span>${items.length}</span></header>
+      <div class="provenance-list">
+        ${items.length === 0 ? '<p class="provenance-empty">Нет данных</p>' : items.join('')}
+      </div>
+    </section>`;
+}
+
+function renderNoDecision(): void {
+  currentDecisionId = null;
+  decisionIdInput.value = '';
+  decisionDetail.hidden = true;
+  decisionError.hidden = true;
+  decisionEmpty.hidden = false;
+}
+
+function openCreateDecisionDialog(): void {
+  if (projectSelect.value.length === 0) {
+    showToast('Нет доступного проекта');
+    return;
+  }
+  createDecisionForm.reset();
+  createDecisionError.hidden = true;
+  sourceList.replaceChildren();
+  sourceRowSequence = 0;
+  addSourceRow();
+  createDecisionDialog.showModal();
+  createDecisionForm.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
+}
+
+function addSourceRow(): void {
+  if (sourceList.childElementCount >= 10) return;
+  const row = document.createElement('div');
+  row.className = 'source-row';
+  row.dataset.sourceRow = String(sourceRowSequence++);
+  row.innerHTML = `
+    <label class="field"><span>Тип</span><select data-field="target_type">
+      <option value="memory_object">Объект памяти</option>
+      <option value="agent_run">Запуск агента</option>
+      <option value="task">Задача</option>
+      <option value="decision">Решение</option>
+      <option value="open_question">Открытый вопрос</option>
+    </select></label>
+    <label class="field source-id"><span>ID источника</span><input data-field="target_id" type="text" required pattern="[0-9a-fA-F-]{36}" maxlength="36" /></label>
+    <label class="field"><span>Связь</span><select data-field="relation_type">
+      <option value="references">Ссылается</option>
+      <option value="derived_from">Основано на</option>
+      <option value="depends_on">Зависит от</option>
+      <option value="explains">Объясняет</option>
+      <option value="implements">Реализует</option>
+      <option value="contradicts">Противоречит</option>
+    </select></label>
+    <button class="icon-button remove-source" type="button" aria-label="Удалить источник" title="Удалить источник"><i data-lucide="trash-2"></i></button>`;
+  row.querySelector<HTMLButtonElement>('.remove-source')?.addEventListener('click', () => row.remove());
+  sourceList.append(row);
+  createIcons({ icons });
+}
+
+async function submitDecision(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  if (!createDecisionForm.reportValidity()) return;
+  const submit = createDecisionForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const data = new FormData(createDecisionForm);
+  const input: DecisionCreateInput = {
+    project_id: projectSelect.value,
+    title: String(data.get('title') ?? ''),
+    decision_text: String(data.get('decision_text') ?? ''),
+    rationale: nullableFormValue(data.get('rationale')),
+    status: data.get('status') === 'proposed' ? 'proposed' : 'draft',
+    sensitivity_level: String(data.get('sensitivity_level') ?? 'internal') as DecisionCreateInput['sensitivity_level'],
+    relationships: collectRelationshipInputs(),
+  };
+  setBusy(submit, true);
+  createDecisionError.hidden = true;
+  try {
+    const created = await createDecision(input);
+    createDecisionDialog.close();
+    selectWorkspaceView('decisions');
+    await loadDecision(created.id);
+    showToast('Решение создано');
+  } catch (error) {
+    createDecisionError.textContent = messageFor(error);
+    createDecisionError.hidden = false;
+  } finally {
+    setBusy(submit, false);
+  }
+}
+
+function collectRelationshipInputs(): DecisionCreateInput['relationships'] {
+  return [...sourceList.querySelectorAll<HTMLElement>('.source-row')].map((row) => ({
+    target_type: requiredField<HTMLSelectElement>(row, 'target_type').value as RelationshipEndpointType,
+    target_id: requiredField<HTMLInputElement>(row, 'target_id').value.trim(),
+    relation_type: requiredField<HTMLSelectElement>(row, 'relation_type').value as RelationshipType,
+  }));
+}
+
+function requiredField<T extends HTMLInputElement | HTMLSelectElement>(row: HTMLElement, name: string): T {
+  const field = row.querySelector<T>(`[data-field="${name}"]`);
+  if (field === null) throw new Error(`Missing source field: ${name}`);
+  return field;
+}
+
+function nullableFormValue(value: FormDataEntryValue | null): string | null {
+  const text = typeof value === 'string' ? value.trim() : '';
+  return text.length === 0 ? null : text;
+}
+
+function setDecisionLoading(loading: boolean): void {
+  decisionRegion.setAttribute('aria-busy', String(loading));
+  refreshButton.disabled = loading;
+  refreshButton.classList.toggle('spinning', loading);
+  newDecisionButton.disabled = loading;
 }
 
 async function loadQueue(reset: boolean): Promise<void> {
@@ -358,6 +662,65 @@ function showToast(message: string): void {
   toast.textContent = message;
   toast.hidden = false;
   toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3200);
+}
+
+function decisionStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    draft: 'Черновик',
+    proposed: 'Предложено',
+    approved: 'Утверждено',
+    rejected: 'Отклонено',
+    superseded: 'Заменено',
+  };
+  return labels[status] ?? status;
+}
+
+function sensitivityLabel(level: string): string {
+  const labels: Record<string, string> = {
+    public: 'Публичная',
+    internal: 'Внутренняя',
+    confidential: 'Конфиденциальная',
+    restricted: 'Ограниченная',
+  };
+  return labels[level] ?? level;
+}
+
+function relationLabel(relation: string): string {
+  const labels: Record<string, string> = {
+    references: 'Ссылается',
+    derived_from: 'Основано на',
+    depends_on: 'Зависит от',
+    contradicts: 'Противоречит',
+    explains: 'Объясняет',
+    implements: 'Реализует',
+    belongs_to: 'Принадлежит',
+    supersedes: 'Заменяет',
+  };
+  return labels[relation] ?? relation;
+}
+
+function endpointLabel(type: string): string {
+  const labels: Record<string, string> = {
+    memory_object: 'Объект памяти',
+    decision: 'Решение',
+    open_question: 'Открытый вопрос',
+    task: 'Задача',
+    agent_run: 'Запуск агента',
+  };
+  return labels[type] ?? type;
+}
+
+function memoryTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    document: 'Документ',
+    protocol: 'Протокол',
+    decision: 'Решение',
+    research_result: 'Результат исследования',
+    open_question: 'Открытый вопрос',
+    ai_result: 'Результат AI',
+    note: 'Заметка',
+  };
+  return labels[type] ?? type;
 }
 
 function messageFor(error: unknown): string {

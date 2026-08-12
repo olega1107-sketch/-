@@ -36,6 +36,123 @@ export interface Confirmation {
   consumed_at: string | null;
 }
 
+export type DecisionStatus = 'draft' | 'proposed' | 'approved' | 'rejected' | 'superseded';
+export type SensitivityLevel = 'public' | 'internal' | 'confidential' | 'restricted';
+export type RelationshipEndpointType =
+  | 'memory_object'
+  | 'decision'
+  | 'open_question'
+  | 'task'
+  | 'agent_run';
+export type RelationshipType =
+  | 'references'
+  | 'depends_on'
+  | 'contradicts'
+  | 'supersedes'
+  | 'explains'
+  | 'implements'
+  | 'belongs_to'
+  | 'derived_from';
+
+export interface RelationshipInput {
+  target_type: RelationshipEndpointType;
+  target_id: string;
+  relation_type: RelationshipType;
+  description?: string | null;
+}
+
+export interface DecisionCreateInput {
+  project_id: string;
+  title: string;
+  decision_text: string;
+  rationale?: string | null;
+  status: 'draft' | 'proposed';
+  sensitivity_level: SensitivityLevel;
+  relationships: RelationshipInput[];
+}
+
+export interface Decision {
+  id: string;
+  memory_object_id: string;
+  project_id: string;
+  topic_id: string | null;
+  title: string;
+  decision_text: string;
+  rationale: string | null;
+  status: DecisionStatus;
+  supersedes_decision_id: string | null;
+  decided_by_user_id: string | null;
+  decided_at: string | null;
+  sensitivity_level: SensitivityLevel;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DecisionProvenance {
+  decision: Decision;
+  provenance_complete: true;
+  relationships: Array<{
+    id: string;
+    source_type: RelationshipEndpointType;
+    source_id: string;
+    target_type: RelationshipEndpointType;
+    target_id: string;
+    relation_type: RelationshipType;
+    description: string | null;
+    created_by_user_id: string;
+    created_at: string;
+  }>;
+  related_memory_objects: Array<{
+    id: string;
+    type: string;
+    title: string;
+    current_version_id: string | null;
+    sensitivity_level: SensitivityLevel;
+  }>;
+  agent_runs: Array<{
+    id: string;
+    task_id: string;
+    agent_type: string;
+    provider: string;
+    model: string | null;
+    status: string;
+    deployment_class: 'internal' | 'external';
+    context_set_hash: string | null;
+    result_memory_object_id: string | null;
+    requested_by_user_id: string;
+    origin_request_id: string;
+    created_at: string;
+    dispatched_at: string | null;
+    started_at: string | null;
+    finished_at: string | null;
+  }>;
+  source_versions: Array<{
+    agent_run_id: string;
+    position: number;
+    memory_object_id: string;
+    memory_object_title: string;
+    document_version_id: string;
+    version_number: number;
+    file_name: string;
+    file_type: string;
+    content_hash: string;
+    size_bytes: number;
+    access_reason: string;
+    frozen_sensitivity_level: SensitivityLevel;
+    current_sensitivity_level: SensitivityLevel;
+  }>;
+  audit_events: Array<{
+    id: string;
+    actor_type: string;
+    actor_id: string | null;
+    action: string;
+    target_type: string;
+    target_id: string;
+    request_id: string;
+    created_at: string;
+  }>;
+}
+
 interface Page<T> {
   items: T[];
   next_cursor: string | null;
@@ -111,6 +228,17 @@ export function decideConfirmation(
   return apiRequest(`/confirmations/${encodeURIComponent(confirmationId)}:${decision}`, {
     method: 'POST',
   });
+}
+
+export function createDecision(input: DecisionCreateInput): Promise<Decision> {
+  return apiRequest('/decisions', {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
+export function getDecisionProvenance(decisionId: string): Promise<DecisionProvenance> {
+  return apiRequest(`/decisions/${encodeURIComponent(decisionId)}/provenance`);
 }
 
 async function apiRequest<T>(

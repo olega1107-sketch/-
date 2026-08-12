@@ -2,9 +2,10 @@
 
 Исполнимый эталон Director для первого вертикального среза. Он проверяет
 публичную загрузку документа, создание и чтение task/agent run, временный
-AI-результат, confirmation flow и внутреннюю Director-сторону
+AI-результат, human decision/provenance, confirmation flow и внутреннюю Director-сторону
 [Agent Gateway Protocol v1](../../gateway/openapi-v1.yaml), но не реализует
-весь публичный Director API.
+весь целевой Director API. Точная исполнимая поверхность опубликована как
+[`openapi-pilot-v1.yaml`](../../api/openapi-pilot-v1.yaml).
 
 ## Что реализовано
 
@@ -79,6 +80,14 @@ AI-результат, confirmation flow и внутреннюю Director-сто
 - `POST /api/v1/agent-runs/{agent_run_id}/result:save` всегда создаёт frozen
   `ai_result_save` confirmation; approval атомарно создаёт `ai_result`, первую
   `document_version`, relationships, завершает task и связывает временный result;
+- `POST /api/v1/decisions` атомарно создаёт human-authored `memory_object` типа
+  `decision`, typed decision, проверенные cross-object relationships,
+  authorization decision и `decision.created`; pilot принимает только `draft`
+  и `proposed`, а retry с тем же `X-Request-Id` идемпотентен;
+- `GET /api/v1/decisions/{decision_id}` применяет decision/memory/sensitivity
+  RBAC, а `/provenance` fail-closed восстанавливает связи, связанные карточки,
+  agent runs, точные frozen `document_version_id`/hash и metadata-only audit без
+  document body, prompt или AI response;
 - reject, expiry и stale payload применяют operation-specific termination:
   context share отменяет waiting run/task, result save оставляет task в review;
 - атомарное создание frozen run, contexts, capability/resources,
@@ -112,7 +121,7 @@ AI-результат, confirmation flow и внутреннюю Director-сто
   PostgreSQL dump/restore harness сравнивает migration, row/canary и Document
   Store manifests;
 - PGlite integration tests на полной [`db/schema-v1.sql`](../../db/schema-v1.sql),
-  включая отзыв роли между staging и commit и rollback при конфликте;
+  включая decision/provenance, отзыв роли между staging и commit и rollback при конфликте;
 - сквозной тест с [Reference Gateway](../../gateway/reference/README.md):
   public task create -> document upload -> agent-run create -> capability redeem ->
   provider lifecycle -> public result read -> `ai_result_save` confirmation ->

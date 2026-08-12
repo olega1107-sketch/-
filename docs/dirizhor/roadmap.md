@@ -21,7 +21,9 @@ vertical slice. В предыдущих материалах существов�
 7. API Дирижёра. Статус: сценарный документ и OpenAPI 3.1 v1 созданы;
    Gateway-facing internal slice, public upload, Memory Registry read/search,
    task create/context/timeline, agent-run dispatch/read, result read/save и
-   public confirmation get/approve/reject реализованы.
+   public confirmation get/approve/reject реализованы. Отдельный
+   исполнимый pilot-профиль фиксирует точный поднабор этих операций,
+   включая create/read/provenance для draft/proposed решений.
 8. Авторизация и права доступа. Статус: черновик v1 создан; upload и dispatch
    применяют project-scoped permissions, условные права для чувствительного
    контекста, project AI policy и повторную проверку перед commit/retry;
@@ -47,9 +49,12 @@ vertical slice. В предыдущих материалах существов�
     verifier восстановленной копии реализованы; provider-native base backup/WAL
     и PITR drill остаются проверкой целевой инфраструктуры.
 11. MVP. Статус: сценарии описаны; public task create, upload, registry search,
-    internal frozen dispatch, external confirmation/dispatch, result read,
-    подтверждённое сохранение `ai_result` и task timeline связаны reference
-    E2E-тестами без seed операционных сущностей.
+   internal frozen dispatch, external confirmation/dispatch, result read,
+   подтверждённое сохранение `ai_result` и task timeline связаны reference
+   E2E-тестами без seed операционных сущностей. Создание человеческого
+   draft/proposed решения, его чтение и fail-closed reconstruction связей,
+   запусков агентов, точных версий источников и audit также реализованы
+   в API и responsive UI.
 12. Подключение ChatGPT. Статус: первый OpenAI Responses adapter реализован;
     backend policy/confirmation flow и точный per-agent/provider routing готовы;
     local/OIDC session flow, project selector API и responsive cookie-aware
@@ -63,6 +68,7 @@ vertical slice. В предыдущих материалах существов�
 - [Первая модель данных](data-model-v1.md)
 - [Director API v1](director-api-v1.md)
 - [OpenAPI 3.1 v1](openapi-v1.md)
+- [Pilot OpenAPI 3.1 v1](../../api/openapi-pilot-v1.yaml)
 - [Agent Gateway Protocol v1](agent-gateway-v1.md)
 - [Reference Agent Gateway](../../gateway/reference/README.md)
 - [Reference Director](../../director/reference/README.md)
@@ -98,6 +104,11 @@ preflight, stdin-only provisioning, local-first RP logout и audited revoke-all
 реализованы; реальный IdP canary остаётся инфраструктурной проверкой. `allow`, `deny` и
 `require_confirmation` decisions со связанным
 success/access audit реализованы для всех текущих public business endpoints.
+Pilot API вынесен в отдельный machine-readable OpenAPI-профиль. Public Director
+создаёт только `draft`/`proposed` решения и возвращает их полное provenance
+без выдачи тела документа, prompt или AI-response в audit. Переходы в
+`approved`/`rejected` и supersede не входят в pilot-контракт до фиксации
+отдельного потока человеческого подтверждения.
 Reference deployment/reverse-proxy профиль, trusted-proxy boundary, mounted
 secret files, dependency readiness, certificate preflight и ephemeral two-way
 mTLS smoke реализованы.

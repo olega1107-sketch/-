@@ -1,20 +1,26 @@
 # Director API
 
-Нормативный HTTP-контракт первого MVP находится в
-[`openapi-v1.yaml`](openapi-v1.yaml). Архитектурные границы и правила его
-чтения описаны в
+Целевой нормативный HTTP-контракт первого MVP находится в
+[`openapi-v1.yaml`](openapi-v1.yaml). Исполнимая поверхность текущего reference
+deployment выделена в отдельный
+[`openapi-pilot-v1.yaml`](openapi-pilot-v1.yaml). Клиенты пилота должны
+генерироваться только по pilot-профилю: наличие операции в полном контракте не
+означает, что она уже зарегистрирована runtime. Архитектурные границы и правила чтения описаны в
 [спецификации Director API](../docs/dirizhor/director-api-v1.md).
 Статус артефакта — архитектурный черновик v1.
 
-В [`director/reference/`](../director/reference/) реализован первый публичный
-vertical slice `POST /api/v1/memory-objects:upload` и внутренний Gateway-facing
-slice. Это проверка отдельных контрактов, а не реализация всего публичного API.
+Pilot-профиль включает рабочий task/agent/result/confirmation flow, registry
+read/search, создание `draft`/`proposed` решений и чтение полной доступной
+provenance-цепочки. `approved` decision и `supersede` намеренно исключены, пока
+для них не реализован отдельный frozen confirmation flow.
 
 ## Валидация
 
 ```bash
 pnpm --package=@redocly/cli@2.46.0 dlx redocly lint \
   --config api/redocly.yaml api/openapi-v1.yaml
+pnpm --package=@redocly/cli@2.46.0 dlx redocly lint \
+  --config api/redocly.yaml api/openapi-pilot-v1.yaml
 ```
 
 Правило `info-license` отключено локально, потому что лицензия проекта еще не

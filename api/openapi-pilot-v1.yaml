@@ -1,0 +1,166 @@
+openapi: 3.1.0
+info:
+  title: Дирижёр Pilot API
+  version: 1.0.0-pilot.1
+  description: |
+    Исполнимый профиль публичного API reference deployment. Только операции из
+    этого документа считаются доступными в пилоте. Полный openapi-v1.yaml
+    остаётся целевой архитектурной моделью и не является обещанием текущей
+    runtime-поверхности.
+servers:
+  - url: /api/v1
+    description: Same-origin Director public boundary
+security:
+  - bearerAuth: []
+  - sessionCookie: []
+x-dirizhor-profile:
+  maturity: pilot
+  base-contract: ./openapi-v1.yaml
+  decision-create-statuses: [draft, proposed]
+  confirmation-required-but-not-implemented:
+    - approved decision creation
+    - decision supersede
+  conditional-operations:
+    session-authentication:
+      - createUserSession
+      - revokeCurrentUserSession
+      - revokeOidcUserSession
+    oidc-authentication:
+      - startOidcLogin
+      - completeOidcLogin
+  excluded-operation-ids:
+    - createProject
+    - getProject
+    - listProjectTopics
+    - createProjectTopic
+    - createMemoryObject
+    - createDocumentVersion
+    - supersedeDecision
+    - listAuditEvents
+paths:
+  /auth/sessions:
+    $ref: './openapi-v1.yaml#/paths/~1auth~1sessions'
+  /auth/oidc/start:
+    $ref: './openapi-v1.yaml#/paths/~1auth~1oidc~1start'
+  /auth/oidc/callback:
+    $ref: './openapi-v1.yaml#/paths/~1auth~1oidc~1callback'
+  /auth/sessions/current:
+    $ref: './openapi-v1.yaml#/paths/~1auth~1sessions~1current'
+  /auth/oidc/logout:
+    $ref: './openapi-v1.yaml#/paths/~1auth~1oidc~1logout'
+  /projects:
+    $ref: './openapi-v1.yaml#/paths/~1projects'
+  /memory-objects:upload:
+    $ref: './openapi-v1.yaml#/paths/~1memory-objects:upload'
+  /memory-objects/search:
+    $ref: './openapi-v1.yaml#/paths/~1memory-objects~1search'
+  /memory-objects/{memory_object_id}:
+    $ref: './openapi-v1.yaml#/paths/~1memory-objects~1{memory_object_id}'
+  /tasks:
+    $ref: './openapi-v1.yaml#/paths/~1tasks'
+  /tasks/{task_id}:
+    $ref: './openapi-v1.yaml#/paths/~1tasks~1{task_id}'
+  /tasks/{task_id}/context:search:
+    $ref: './openapi-v1.yaml#/paths/~1tasks~1{task_id}~1context:search'
+  /tasks/{task_id}/timeline:
+    $ref: './openapi-v1.yaml#/paths/~1tasks~1{task_id}~1timeline'
+  /tasks/{task_id}/agent-runs:
+    $ref: './openapi-v1.yaml#/paths/~1tasks~1{task_id}~1agent-runs'
+  /agent-runs/{agent_run_id}:
+    $ref: './openapi-v1.yaml#/paths/~1agent-runs~1{agent_run_id}'
+  /agent-runs/{agent_run_id}/result:
+    $ref: './openapi-v1.yaml#/paths/~1agent-runs~1{agent_run_id}~1result'
+  /agent-runs/{agent_run_id}/result:save:
+    $ref: './openapi-v1.yaml#/paths/~1agent-runs~1{agent_run_id}~1result:save'
+  /decisions:
+    parameters:
+      - $ref: './openapi-v1.yaml#/components/parameters/RequestIdHeader'
+    post:
+      tags: [Decisions]
+      summary: Создать draft или proposed решение
+      operationId: createDecision
+      x-permissions: [project.read, decision.create]
+      x-audit-events: [decision.created]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PilotDecisionCreate'
+      responses:
+        '201':
+          description: Решение и его карточка памяти созданы
+          headers:
+            X-Request-Id:
+              $ref: './openapi-v1.yaml#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: './openapi-v1.yaml#/components/schemas/Decision'
+        '400':
+          $ref: './openapi-v1.yaml#/components/responses/BadRequest'
+        '401':
+          $ref: './openapi-v1.yaml#/components/responses/Unauthorized'
+        '403':
+          $ref: './openapi-v1.yaml#/components/responses/Forbidden'
+        '404':
+          $ref: './openapi-v1.yaml#/components/responses/NotFound'
+        '409':
+          $ref: './openapi-v1.yaml#/components/responses/Conflict'
+        '500':
+          $ref: './openapi-v1.yaml#/components/responses/InternalError'
+  /decisions/{decision_id}:
+    $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}'
+  /decisions/{decision_id}/provenance:
+    $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}~1provenance'
+  /confirmations:
+    $ref: './openapi-v1.yaml#/paths/~1confirmations'
+  /confirmations/{confirmation_id}:
+    $ref: './openapi-v1.yaml#/paths/~1confirmations~1{confirmation_id}'
+  /confirmations/{confirmation_id}:approve:
+    $ref: './openapi-v1.yaml#/paths/~1confirmations~1{confirmation_id}:approve'
+  /confirmations/{confirmation_id}:reject:
+    $ref: './openapi-v1.yaml#/paths/~1confirmations~1{confirmation_id}:reject'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Высокоэнтропийный opaque Director session token.
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: __Host-dirizhor_session
+      description: Secure HttpOnly SameSite=Lax Director session.
+  schemas:
+    PilotDecisionCreate:
+      type: object
+      additionalProperties: false
+      required: [project_id, title, decision_text]
+      properties:
+        project_id:
+          $ref: './openapi-v1.yaml#/components/schemas/Uuid'
+        topic_id:
+          $ref: './openapi-v1.yaml#/components/schemas/NullableUuid'
+        title:
+          type: string
+          minLength: 1
+        decision_text:
+          type: string
+          minLength: 1
+        rationale:
+          type: [string, 'null']
+        status:
+          type: string
+          enum: [draft, proposed]
+          default: draft
+        sensitivity_level:
+          allOf:
+            - $ref: './openapi-v1.yaml#/components/schemas/SensitivityLevel'
+          default: internal
+        relationships:
+          type: array
+          maxItems: 100
+          default: []
+          items:
+            $ref: './openapi-v1.yaml#/components/schemas/RelationshipRef'

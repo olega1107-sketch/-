@@ -1079,6 +1079,49 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /decisions/{decision_id}/provenance:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/DecisionIdPath'
+    get:
+      tags: [Decisions]
+      summary: Восстановить происхождение решения
+      description: |
+        Возвращает только metadata полной доступной цепочки: связи, связанные
+        карточки памяти, агентские запуски, точные версии документов и audit
+        events. Содержимое документов, prompt и AI response не возвращаются.
+        Если пользователь не может прочитать любой элемент цепочки, операция
+        завершается отказом вместо частичного раскрытия provenance.
+      operationId: getDecisionProvenance
+      x-permissions:
+        - decision.read
+        - memory_object.read
+        - document_version.read
+      x-conditional-permissions:
+        linked_task: task.read
+        linked_agent_run: agent_run.read
+        confidential_source: memory_object.read_confidential
+        restricted_source: memory_object.read_restricted
+      x-audit-events: [access.allowed]
+      responses:
+        '200':
+          description: Полная разрешенная цепочка происхождения решения
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DecisionProvenance'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /decisions/{decision_id}:supersede:
     parameters:
       - $ref: '#/components/parameters/RequestIdHeader'
@@ -2363,6 +2406,228 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: '#/components/schemas/Timestamp'
+    DecisionRelationship:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - source_type
+        - source_id
+        - target_type
+        - target_id
+        - relation_type
+        - description
+        - created_by_user_id
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        source_type:
+          $ref: '#/components/schemas/RelationshipEndpointType'
+        source_id:
+          $ref: '#/components/schemas/Uuid'
+        target_type:
+          $ref: '#/components/schemas/RelationshipEndpointType'
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        relation_type:
+          $ref: '#/components/schemas/RelationshipType'
+        description:
+          type: [string, 'null']
+        created_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    DecisionRelatedMemoryObject:
+      type: object
+      additionalProperties: false
+      required: [id, type, title, current_version_id, sensitivity_level]
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        type:
+          $ref: '#/components/schemas/MemoryObjectType'
+        title:
+          type: string
+          minLength: 1
+        current_version_id:
+          $ref: '#/components/schemas/NullableUuid'
+        sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+    DecisionProvenanceAgentRun:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - task_id
+        - agent_type
+        - provider
+        - model
+        - status
+        - deployment_class
+        - context_set_hash
+        - result_memory_object_id
+        - requested_by_user_id
+        - origin_request_id
+        - created_at
+        - dispatched_at
+        - started_at
+        - finished_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        task_id:
+          $ref: '#/components/schemas/Uuid'
+        agent_type:
+          type: string
+          minLength: 1
+        provider:
+          type: string
+          minLength: 1
+        model:
+          type: [string, 'null']
+        status:
+          $ref: '#/components/schemas/AgentRunStatus'
+        deployment_class:
+          $ref: '#/components/schemas/DeploymentClass'
+        context_set_hash:
+          oneOf:
+            - $ref: '#/components/schemas/Sha256Hash'
+            - type: 'null'
+        result_memory_object_id:
+          $ref: '#/components/schemas/NullableUuid'
+        requested_by_user_id:
+          $ref: '#/components/schemas/Uuid'
+        origin_request_id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        dispatched_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        started_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+        finished_at:
+          $ref: '#/components/schemas/NullableTimestamp'
+    DecisionSourceVersion:
+      type: object
+      additionalProperties: false
+      required:
+        - agent_run_id
+        - position
+        - memory_object_id
+        - memory_object_title
+        - document_version_id
+        - version_number
+        - file_name
+        - file_type
+        - content_hash
+        - size_bytes
+        - access_reason
+        - frozen_sensitivity_level
+        - current_sensitivity_level
+      properties:
+        agent_run_id:
+          $ref: '#/components/schemas/Uuid'
+        position:
+          type: integer
+          minimum: 1
+        memory_object_id:
+          $ref: '#/components/schemas/Uuid'
+        memory_object_title:
+          type: string
+          minLength: 1
+        document_version_id:
+          $ref: '#/components/schemas/Uuid'
+        version_number:
+          type: integer
+          minimum: 1
+        file_name:
+          type: string
+          minLength: 1
+        file_type:
+          type: string
+          minLength: 1
+        content_hash:
+          $ref: '#/components/schemas/Sha256Hash'
+        size_bytes:
+          type: integer
+          minimum: 0
+        access_reason:
+          type: string
+          minLength: 1
+        frozen_sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+        current_sensitivity_level:
+          $ref: '#/components/schemas/SensitivityLevel'
+    DecisionAuditEvent:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - actor_type
+        - actor_id
+        - action
+        - target_type
+        - target_id
+        - request_id
+        - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        actor_type:
+          type: string
+          minLength: 1
+        actor_id:
+          $ref: '#/components/schemas/NullableUuid'
+        action:
+          type: string
+          minLength: 1
+        target_type:
+          type: string
+          minLength: 1
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        request_id:
+          $ref: '#/components/schemas/Uuid'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    DecisionProvenance:
+      type: object
+      additionalProperties: false
+      required:
+        - decision
+        - provenance_complete
+        - relationships
+        - related_memory_objects
+        - agent_runs
+        - source_versions
+        - audit_events
+      properties:
+        decision:
+          $ref: '#/components/schemas/Decision'
+        provenance_complete:
+          type: boolean
+          const: true
+        relationships:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecisionRelationship'
+        related_memory_objects:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecisionRelatedMemoryObject'
+        agent_runs:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecisionProvenanceAgentRun'
+        source_versions:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecisionSourceVersion'
+        audit_events:
+          type: array
+          items:
+            $ref: '#/components/schemas/DecisionAuditEvent'
     DecisionSupersedeRequest:
       type: object
       additionalProperties: false

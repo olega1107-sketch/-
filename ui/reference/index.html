@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f4f5f3" />
-    <title>Дирижёр · Подтверждения</title>
+    <title>Дирижёр</title>
   </head>
   <body>
     <div id="app">
@@ -50,9 +50,12 @@
             <span>Дирижёр</span>
           </div>
           <nav aria-label="Основная навигация">
-            <button class="nav-item active" type="button">
+            <button class="nav-item active" id="confirmations-nav" data-view="confirmations" type="button">
               <i data-lucide="shield-check"></i><span>Подтверждения</span>
               <span class="nav-count" id="nav-count" hidden></span>
+            </button>
+            <button class="nav-item" id="decisions-nav" data-view="decisions" type="button">
+              <i data-lucide="git-branch"></i><span>Решения</span>
             </button>
           </nav>
           <div class="sidebar-footer">
@@ -85,7 +88,7 @@
             </div>
           </header>
 
-          <div class="content">
+          <section class="content" id="confirmations-view">
             <div class="page-heading">
               <div>
                 <p class="eyebrow">Контроль операций</p>
@@ -121,7 +124,44 @@
                 </button>
               </div>
             </section>
-          </div>
+          </section>
+
+          <section class="content decisions-view" id="decisions-view" hidden>
+            <div class="page-heading decision-page-heading">
+              <div>
+                <p class="eyebrow">История решений</p>
+                <h1>Решения</h1>
+              </div>
+              <button class="button primary" id="new-decision-button" type="button">
+                <i data-lucide="plus"></i><span>Новое решение</span>
+              </button>
+            </div>
+
+            <form class="decision-lookup" id="decision-lookup-form">
+              <label for="decision-id-input">ID решения</label>
+              <div class="lookup-controls">
+                <input id="decision-id-input" name="decision_id" type="text" required
+                  pattern="[0-9a-fA-F-]{36}" maxlength="36" autocomplete="off"
+                  placeholder="00000000-0000-0000-0000-000000000000" />
+                <button class="button secondary" type="submit">
+                  <i data-lucide="search"></i><span>Открыть</span>
+                </button>
+              </div>
+            </form>
+
+            <section class="decision-region" id="decision-region" aria-live="polite" aria-busy="false">
+              <div class="decision-empty" id="decision-empty">
+                <i data-lucide="git-branch"></i>
+                <h2>Решение не выбрано</h2>
+              </div>
+              <div class="decision-error error-state" id="decision-error" hidden>
+                <i data-lucide="triangle-alert"></i>
+                <h2>Не удалось открыть решение</h2>
+                <p id="decision-error-message"></p>
+              </div>
+              <article class="decision-detail" id="decision-detail" hidden></article>
+            </section>
+          </section>
         </main>
       </div>
 
@@ -136,6 +176,62 @@
           <div class="dialog-actions">
             <button class="button secondary" value="cancel" type="submit">Отмена</button>
             <button class="button primary" id="dialog-confirm" value="confirm" type="submit">Подтвердить</button>
+          </div>
+        </form>
+      </dialog>
+
+      <dialog class="decision-dialog create-decision-dialog" id="create-decision-dialog">
+        <form id="create-decision-form">
+          <div class="dialog-copy create-dialog-heading">
+            <p class="eyebrow">Human decision</p>
+            <h2>Новое решение</h2>
+          </div>
+          <button class="icon-button dialog-close" id="create-dialog-close" type="button" aria-label="Закрыть" title="Закрыть">
+            <i data-lucide="x"></i>
+          </button>
+
+          <div class="decision-form-grid">
+            <label class="field full-width">
+              <span>Название</span>
+              <input name="title" type="text" required maxlength="300" />
+            </label>
+            <label class="field full-width">
+              <span>Формулировка решения</span>
+              <textarea name="decision_text" required maxlength="12000" rows="5"></textarea>
+            </label>
+            <label class="field full-width">
+              <span>Обоснование</span>
+              <textarea name="rationale" maxlength="6000" rows="3"></textarea>
+            </label>
+            <fieldset class="field status-segment">
+              <legend>Статус</legend>
+              <label><input type="radio" name="status" value="draft" checked /><span>Черновик</span></label>
+              <label><input type="radio" name="status" value="proposed" /><span>Предложено</span></label>
+            </fieldset>
+            <label class="field">
+              <span>Чувствительность</span>
+              <select name="sensitivity_level">
+                <option value="internal">Внутренняя</option>
+                <option value="public">Публичная</option>
+                <option value="confidential">Конфиденциальная</option>
+                <option value="restricted">Ограниченная</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="source-heading">
+            <h3>Источники</h3>
+            <button class="icon-button" id="add-source-button" type="button" aria-label="Добавить источник" title="Добавить источник">
+              <i data-lucide="plus"></i>
+            </button>
+          </div>
+          <div class="source-list" id="source-list"></div>
+          <p class="form-error" id="create-decision-error" role="alert" hidden></p>
+          <div class="dialog-actions">
+            <button class="button secondary" id="create-dialog-cancel" type="button">Отмена</button>
+            <button class="button primary" type="submit">
+              <i data-lucide="file-check-2"></i><span>Создать решение</span>
+            </button>
           </div>
         </form>
       </dialog>

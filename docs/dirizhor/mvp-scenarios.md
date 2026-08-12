@@ -123,6 +123,12 @@ Reference-статус: public API читает temporary result с провер
 - решение связано с источниками;
 - изменение утвержденного решения требует новой версии или связи `supersedes`.
 
+Reference-статус: public API атомарно создаёт human-authored `decision` и его
+карточку памяти в статусе `draft` или `proposed`, проверяет все relationship
+targets, пишет authorization decision и audit, поддерживает идемпотентный retry.
+`approved` и `supersede` исключены из pilot-профиля до реализации frozen
+confirmation workflow.
+
 ## Сценарий 6. Восстановить историю решения
 
 Цель: понять, почему и на основании чего было принято решение.
@@ -139,6 +145,11 @@ Reference-статус: public API читает temporary result с провер
 - видна цепочка происхождения решения;
 - можно увидеть версии документов, использованные в AI-запуске;
 - можно отличить AI-выводы от решения пользователя.
+
+Reference-статус: `GET /api/v1/decisions/{decision_id}/provenance` fail-closed
+возвращает решение, отношения, связанные memory objects, agent runs, точные
+версии и SHA-256 документов из frozen context, а также metadata-only audit.
+Неполная цепочка не раскрывается пользователю без прав на любой её элемент.
 
 ## Что не входит в первый MVP
 

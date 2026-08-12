@@ -25,6 +25,13 @@ import {
   ConfirmationSchema,
 } from './confirmation-protocol.js';
 import type { ConfirmationService } from './confirmation-service.js';
+import {
+  DecisionCreateSchema,
+  DecisionIdParamsSchema,
+  DecisionProvenanceSchema,
+  DecisionSchema,
+} from './decision-protocol.js';
+import type { DecisionService } from './decision-service.js';
 import { DirectorProtocolError } from './errors.js';
 import type { MemoryIngestService } from './memory-ingest-service.js';
 import type { AuthenticatedUser, UserAuthenticator } from './memory-ports.js';
@@ -93,6 +100,7 @@ export interface DirectorAppOptions {
     maxUploadBytes?: number;
     tasks?: TaskService;
     agentResults?: AgentResultService;
+    decisions?: DecisionService;
     confirmations?: ConfirmationService;
     queries?: PublicQueryService;
     sessions?: {
@@ -124,6 +132,8 @@ const agentRunRouteParameter =
   ':agent_run_id(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$)';
 const confirmationRouteParameter =
   ':confirmation_id(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$)';
+const decisionRouteParameter =
+  ':decision_id(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$)';
 const memoryObjectRouteParameter =
   ':memory_object_id(^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$)';
 const publicErrorResponses = {
@@ -826,6 +836,110 @@ export function buildDirectorApp(options: DirectorAppOptions) {
               ),
           );
           return reply.header('x-request-id', requestId).status(201).send(memoryObject);
+        },
+      );
+    }
+
+    const decisions = publicApi.decisions;
+    if (decisions !== undefined) {
+      app.post(
+        '/api/v1/decisions',
+        {
+          schema: {
+            headers: PublicRequestHeadersSchema,
+            body: DecisionCreateSchema,
+            response: { 201: DecisionSchema, ...publicErrorResponses },
+          },
+          preHandler: async (request) => {
+            const principal = await authenticateUser(publicApi.authenticator, request);
+            userPrincipals.set(request, principal);
+          },
+        },
+        async (request, reply) => {
+          const requestId = requestIdFor(request);
+          const principal = requiredUserPrincipal(userPrincipals, request);
+          const decision = await executeAuthorized(
+            publicApi.authorizationAudit,
+            {
+              actorUserId: principal.userId,
+              action: 'decision.create',
+              resourceType: 'project',
+              resourceId: request.body.project_id,
+              projectId: request.body.project_id,
+              requestId,
+            },
+            () => decisions.createDecision(principal.userId, requestId, request.body),
+          );
+          return reply.header('x-request-id', requestId).status(201).send(decision);
+        },
+      );
+
+      app.get(
+        `/api/v1/decisions/${decisionRouteParameter}/provenance`,
+        {
+          schema: {
+            params: DecisionIdParamsSchema,
+            headers: PublicRequestHeadersSchema,
+            response: { 200: DecisionProvenanceSchema, ...publicErrorResponses },
+          },
+          preHandler: async (request) => {
+            const principal = await authenticateUser(publicApi.authenticator, request);
+            userPrincipals.set(request, principal);
+          },
+        },
+        async (request, reply) => {
+          const requestId = requestIdFor(request);
+          const principal = requiredUserPrincipal(userPrincipals, request);
+          const provenance = await executeAuthorized(
+            publicApi.authorizationAudit,
+            {
+              actorUserId: principal.userId,
+              action: 'decision.read',
+              resourceType: 'decision',
+              resourceId: request.params.decision_id,
+              projectId: null,
+              requestId,
+            },
+            () =>
+              decisions.getDecisionProvenance(
+                principal.userId,
+                requestId,
+                request.params.decision_id,
+              ),
+          );
+          return reply.header('x-request-id', requestId).status(200).send(provenance);
+        },
+      );
+
+      app.get(
+        `/api/v1/decisions/${decisionRouteParameter}`,
+        {
+          schema: {
+            params: DecisionIdParamsSchema,
+            headers: PublicRequestHeadersSchema,
+            response: { 200: DecisionSchema, ...publicErrorResponses },
+          },
+          preHandler: async (request) => {
+            const principal = await authenticateUser(publicApi.authenticator, request);
+            userPrincipals.set(request, principal);
+          },
+        },
+        async (request, reply) => {
+          const requestId = requestIdFor(request);
+          const principal = requiredUserPrincipal(userPrincipals, request);
+          const decision = await executeAuthorized(
+            publicApi.authorizationAudit,
+            {
+              actorUserId: principal.userId,
+              action: 'decision.read',
+              resourceType: 'decision',
+              resourceId: request.params.decision_id,
+              projectId: null,
+              requestId,
+            },
+            () => decisions.getDecision(principal.userId, requestId, request.params.decision_id),
+          );
+          return reply.header('x-request-id', requestId).status(200).send(decision);
         },
       );
     }

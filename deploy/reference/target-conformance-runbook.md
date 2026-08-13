@@ -211,6 +211,10 @@ fingerprint, server DNS и request ID, но не token или signing material.
 `scripts/target-canary.mjs`. Конфигурация, безопасный execution context и точная
 граница переносимых registry updates описаны в
 [automated target canary v2](target-canary-runbook.md).
+Перед чтением ключей и live handshake выполнить
+`scripts/target-canary-preflight.mjs`: его `PASS` подтверждает полную локальную
+готовность input files по schema/type/mode/size, но сам не закрывает ни один
+target registry check.
 
 Registry IDs: `mtls.certificate_profile`,
 `mtls.live_director_to_gateway`, `mtls.live_gateway_to_director`,

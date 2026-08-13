@@ -331,7 +331,7 @@ async function executeCheck(id, execute, runtime) {
 }
 
 async function checkProtectedFiles(config, reader) {
-  const specifications = materialSpecifications(config);
+  const specifications = targetCanaryMaterialSpecifications(config);
   const files = [];
   for (const specification of specifications) {
     const material = await reader.read(specification);
@@ -1201,7 +1201,7 @@ async function readMaterial(specification, runtime) {
   return { content, mode };
 }
 
-function materialSpecifications(config) {
+export function targetCanaryMaterialSpecifications(config) {
   const specifications = [];
   if (config.public.ca_path !== null) {
     specifications.push({

@@ -123,7 +123,8 @@ bearer token и может обращаться только к generic health e
    JSON report и проверить `status=PASS`; любой другой исход блокирует rollout.
 8. Выполнить отдельный runtime `db:status`; pending/dirty/diverged блокирует rollout.
 9. Применить workloads, дождаться rollout и проверить probes/events.
-10. Выполнить `target-canary.mjs` для external Host/TLS, OIDC discovery/start,
+10. Выполнить `target-canary-preflight.mjs`; только после `PASS` запустить
+   `target-canary.mjs` для external Host/TLS, OIDC discovery/start,
    mTLS+short-lived-workload-token и exact project scope, затем завершить browser MFA и выполнить
    отдельный `application-canary.mjs`. Его internal route должен соответствовать
    реальному internal adapter/deployment, а не переклассифицированному cloud route.

@@ -83,7 +83,33 @@ Config file может находиться в change workspace, но evidence o
 новым каталогом за пределами source tree. Его parent создаётся заранее с
 ограниченным доступом.
 
-## 4. Запуск
+До чтения secret contents и сетевых обращений проверить весь локальный input set:
+
+```bash
+node scripts/target-canary-preflight.mjs \
+  /secure/change/CHG-123/target-canary-preflight \
+  /secure/change/CHG-123/target-canary-config.json
+```
+
+Preflight проверяет строгую config schema, Node `>=22.18`, отсутствие symlink,
+regular-file type, доступность для чтения текущей identity, ненулевой
+ограниченный size и permissions каждого
+обязательного и configured optional material. Он использует только filesystem
+metadata, не читает содержимое файлов, не обращается к DNS/endpoints и не
+заменяет certificate preflight или live-canary. Отчёт не содержит filesystem
+paths; output directory имеет mode `0700`, файл `target-canary-preflight.json` —
+`0600`.
+
+Preflight exit codes:
+
+- `0`: все локальные prerequisites имеют `PASS`;
+- `1`: отчёт создан со статусом `BLOCKED` и полным набором найденных причин;
+- `2`: invocation/config/output некорректны, readiness не установлена.
+
+Любой исход кроме `0` блокирует certificate preflight и live запуск. Повтор
+получает новый output directory; исходный `BLOCKED` report не перезаписывается.
+
+## 4. Live-запуск
 
 Из `deploy/reference`:
 

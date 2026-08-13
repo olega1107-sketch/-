@@ -43,6 +43,8 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/target-canary.mjs`, `target-canary-config.example.json` и
   `target-canary-runbook.md` — fail-closed live DNS/TLS, edge, OIDC, two-way
   mTLS+short-lived-workload-token и exact-session-scope evidence runner;
+- `scripts/target-canary-preflight.mjs` — offline проверка Node runtime и всех
+  target-canary input files по metadata без чтения secret contents и без сети;
 - `scripts/application-canary.mjs`, `application-canary-config.example.json` и
   `application-canary-runbook.md` — отдельный least-privilege mutating public
   workflow, confirmation replay и proposed `application.primary_canary` evidence;
@@ -209,6 +211,7 @@ node --test test/release-evidence.test.mjs
 node --test test/container-preflight.test.mjs
 node --test test/oci-release.test.mjs
 node --test test/kubernetes-render.test.mjs
+node --test test/target-canary-preflight.test.mjs
 node --test test/target-canary.test.mjs
 node --test test/application-canary.test.mjs
 node --test test/application-failure-canary.test.mjs
@@ -223,12 +226,19 @@ Live subset target checks выполняется из изолированног
 реальными target DNS, IdP, service identities и browser-issued canary session:
 
 ```bash
+node scripts/target-canary-preflight.mjs \
+  /secure/change/CHG-123/target-canary-preflight \
+  /secure/change/CHG-123/target-canary-config.json
+
 node scripts/target-canary.mjs \
   /secure/change/CHG-123/target-canary \
   /secure/change/CHG-123/target-canary-config.json
 ```
 
-Успешный runner даёт переносимые updates только для external edge, обоих live
+Preflight должен вернуть `PASS` до certificate preflight и live-runner. Он
+собирает все missing/type/mode/size blockers за один проход, не читает
+материалы и не создаёт target evidence. Успешный live-runner даёт переносимые
+updates только для external edge, обоих live
 mTLS направлений и OIDC discovery. Он не объявляет пройденными полный browser
 canary или mutating application scenario. Условия, secret boundary и stop-ship
 критерии описаны в

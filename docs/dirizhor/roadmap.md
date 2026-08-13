@@ -136,7 +136,11 @@ external-secret boundary, RWO PVC и защищённым render evidence. Runti
 apply остаются target gate со статусом `NOT_RUN`. Fail-closed target canary
 runner теперь автоматизирует live DNS/TLS, внешний edge contract, OIDC
 discovery/start, обе стороны mTLS+Bearer и точный project scope browser-issued
-session без записи секретов в evidence. Следующий продуктовый срез — фактическое
+session без записи секретов в evidence. Machine-readable pilot adoption gate
+отдельно блокирует single-replica/Recreate
+profile без утверждённых SLO/error budget, outage limits, RPO/RTO, owners, alert
+thresholds и независимого review; его PASS является обязательной строкой
+conformance registry v3. Следующий продуктовый срез — фактическое
 заполнение conformance gate на целевой инфраструктуре: server-side apply,
 полный corporate IdP browser/MFA и mutating application canary, contention,
 provider PITR и operations evidence.

@@ -20,6 +20,10 @@ test('complete evidence passes with a deterministic manifest hash', () => {
   const first = validateEvidence(evidence, registry);
   const second = validateEvidence(structuredClone(evidence), registry);
 
+  assert.equal(registry.registry_version, 3);
+  assert.ok(
+    registry.checks.some((check) => check.id === 'operations.adoption_decisions'),
+  );
   assert.equal(first.gate_status, 'PASS');
   assert.deepEqual(first.counts, {
     pass: registry.checks.length,
@@ -101,6 +105,79 @@ test('reviewer must be independent from rollout owner', () => {
   assert.throws(() => validateEvidence(evidence, registry), /independent/);
 });
 
+test('adoption PASS cannot be asserted for a blocked embedded decision', () => {
+  const evidence = completeEvidence();
+  evidence.adoption_decision.approval = {
+    status: 'DRAFT',
+    decided_at: null,
+    evidence_refs: [],
+  };
+  assert.throws(
+    () => validateEvidence(evidence, registry),
+    /cannot pass a blocked decision/,
+  );
+
+  const blocked = completeEvidence();
+  blocked.adoption_decision.approval = {
+    status: 'DRAFT',
+    decided_at: null,
+    evidence_refs: [],
+  };
+  const adoptionCheck = blocked.checks.find(
+    (check) => check.id === 'operations.adoption_decisions',
+  );
+  adoptionCheck.status = 'NOT_RUN';
+  adoptionCheck.observed_at = null;
+  adoptionCheck.evidence_refs = [];
+  const report = validateEvidence(blocked, registry);
+  assert.equal(report.gate_status, 'BLOCKED');
+  assert.equal(report.adoption_decision.gate_status, 'BLOCKED');
+});
+
+test('adoption PASS requires an artifact reference to its validated report', () => {
+  const evidence = completeEvidence();
+  const adoptionCheck = evidence.checks.find(
+    (check) => check.id === 'operations.adoption_decisions',
+  );
+  adoptionCheck.evidence_refs = ['change:ADOPTION-2026-001'];
+  assert.throws(
+    () => validateEvidence(evidence, registry),
+    /validated report artifact/,
+  );
+});
+
+test('embedded adoption must match target environment, recovery and restore owner', () => {
+  const environment = completeEvidence();
+  environment.adoption_decision.environment = 'different-pilot';
+  assert.throws(
+    () => validateEvidence(environment, registry),
+    /environment differs/,
+  );
+
+  const recovery = completeEvidence();
+  recovery.recovery.approved_rpo_seconds = 300;
+  assert.throws(
+    () => validateEvidence(recovery, registry),
+    /recovery objectives differ/,
+  );
+
+  const restoreOwner = completeEvidence();
+  restoreOwner.owners.restore = 'different-restore-owner';
+  assert.throws(
+    () => validateEvidence(restoreOwner, registry),
+    /restore owner differs/,
+  );
+});
+
+test('pilot adoption must be approved before target execution', () => {
+  const evidence = completeEvidence();
+  evidence.adoption_decision.approval.decided_at = '2026-08-10T12:00:01.000Z';
+  assert.throws(
+    () => validateEvidence(evidence, registry),
+    /approved before target execution/,
+  );
+});
+
 test('CLI exits zero only for a complete PASS report', () => {
   const directory = mkdtempSync(path.join(tmpdir(), 'dirizhor-evidence-test-'));
   try {
@@ -154,22 +231,89 @@ function completeEvidence() {
       oidc_client_id: 'dirizhor-pilot',
     },
     recovery: {
-      approved_rpo_seconds: 300,
-      approved_rto_seconds: 1800,
+      approved_rpo_seconds: 3_600,
+      approved_rto_seconds: 3_600,
       recovery_set_id: 'recovery-set-2026-08-10',
     },
+    adoption_decision: approvedAdoptionDecision(),
     owners: {
       rollout: 'platform-owner',
       rollback: 'release-owner',
-      restore: 'database-owner',
+      restore: 'restore-owner',
       reviewer: 'security-reviewer',
     },
     checks: registry.checks.map((check) => ({
       id: check.id,
       status: 'PASS',
       observed_at: '2026-08-10T12:20:00.000Z',
-      evidence_refs: [`change:CHG-2026-0001/${check.id}`],
+      evidence_refs: [
+        check.id === 'operations.adoption_decisions'
+          ? 'artifact:ADOPTION-2026-001/report'
+          : `change:CHG-2026-0001/${check.id}`,
+      ],
     })),
+  };
+}
+
+function approvedAdoptionDecision() {
+  return {
+    schema_version: 1,
+    decision_id: 'ADOPTION-2026-001',
+    environment: 'pilot-eu-1',
+    profile_id: 'dirizhor-pilot-single-replica-recreate-v1',
+    architecture_commit: '1'.repeat(40),
+    owners: {
+      decision: 'technology-owner',
+      service: 'service-owner',
+      backup: 'backup-owner',
+      restore: 'restore-owner',
+      incident: 'incident-owner',
+      failover: 'failover-owner',
+      alerts: 'observability-owner',
+      reviewer: 'independent-reviewer',
+    },
+    availability: {
+      slo_target_basis_points: 9_950,
+      measurement_window_days: 30,
+      maximum_planned_outage_seconds: 1_800,
+      maximum_unplanned_outage_seconds: 900,
+      planned_maintenance_counts_against_slo: true,
+      maintenance_window_ref: 'ticket:MAINTENANCE-WINDOW-001',
+    },
+    recovery: {
+      postgresql_rpo_seconds: 300,
+      document_store_rpo_seconds: 3_600,
+      full_restore_rto_seconds: 3_600,
+      failover_rto_seconds: 900,
+      maximum_restore_drill_age_seconds: 2_592_000,
+      backup_retention_days: 35,
+    },
+    alerts: {
+      readiness_failure_seconds: 60,
+      http_error_rate_basis_points: 100,
+      http_error_rate_window_seconds: 300,
+      http_latency_p95_ms: 2_000,
+      postgresql_wal_archive_lag_seconds: 60,
+      document_store_backup_age_seconds: 1_800,
+      restore_drill_age_seconds: 2_419_200,
+    },
+    profile_risks: {
+      director_single_replica_accepted: true,
+      gateway_single_replica_accepted: true,
+      recreate_rollout_outage_accepted: true,
+      risk_acceptance_ref: 'ticket:RISK-2026-001',
+    },
+    approval: {
+      status: 'APPROVED',
+      decided_at: '2026-08-10T11:00:00.000Z',
+      evidence_refs: [
+        'change:ADOPTION-2026-001',
+        'ticket:RISK-2026-001',
+        'ticket:MAINTENANCE-WINDOW-001',
+        'alert:DIRIZHOR-PILOT-V1',
+        'dashboard:DIRIZHOR-SLO-V1',
+      ],
+    },
   };
 }
 

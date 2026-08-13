@@ -12,11 +12,11 @@ ephemeral certificates.
 
 Перед началом фиксируются release/image digests, migration checksums, public и
 internal DNS names, IdP issuer/client ID, PostgreSQL provider/version, approved
-RPO/RTO, backup recovery set и ответственные за rollout/rollback.
+pilot adoption decision, backup recovery set и ответственные за rollout/rollback.
 
-Машиночитаемый registry находится в `conformance/checks-v2.json`. Для каждого
+Машиночитаемый registry находится в `conformance/checks-v3.json`. Для каждого
 rollout создаётся защищённая рабочая копия
-`conformance/evidence-template-v2.json`; исходный template намеренно содержит
+`conformance/evidence-template-v3.json`; исходный template намеренно содержит
 невалидные placeholders. Произвольные поля запрещены. Фактические logs, screenshots
 и provider reports хранятся отдельно, а `evidence_refs` содержит только opaque
 идентификаторы с namespace `alert:`, `artifact:`, `backup:`, `change:`,
@@ -32,6 +32,39 @@ Exit code `0` означает полный `PASS`; `1` — валидный, н
 `2` — структурно неверный или неполный evidence. Выходной manifest содержит
 статусы, counts и canonical SHA-256 исходного отчёта, но не сами evidence refs,
 DNS, issuer/client ID или recovery metadata.
+
+До release и target действий копируется и заполняется
+`pilot-adoption-decision-template-v1.json`. Числа в reference-проекте
+намеренно не предзаполнены: их утверждает организация для конкретной среды.
+
+```bash
+node scripts/pilot-adoption-decision.mjs \
+  /secure/change/CHG-123/pilot-adoption-decision.json \
+  /secure/change/CHG-123/pilot-adoption-report.json
+```
+
+Gate проверяет exact architecture commit, SLO/error budget, допустимые planned
+и unplanned outage, отдельные PostgreSQL/Document Store RPO, full-restore и
+failover RTO, backup retention, возраст restore drill, владельцев и alert
+thresholds. Допустимое maintenance window фиксируется отдельным opaque
+reference, а решение о switchover имеет назначенного failover owner. Alert
+thresholds обязаны срабатывать не позже соответствующего
+outage/RPO limit. `APPROVED` требует независимого reviewer, opaque approval,
+alert-policy и dashboard evidence, а также явного принятия single-replica
+Director/Gateway и `Recreate` outage. Только report с `gate_status=PASS`
+разрешает поставить `operations.adoption_decisions=PASS`; его canonical
+`report_sha256` сохраняется под `artifact:` reference. `DRAFT` и `REJECTED`
+возвращают код `1`, невалидный документ — код `2`.
+Report path должен быть новым и находиться вне source workspace в заранее
+созданном каталоге с mode `0700`; CLI создаёт файл с mode `0600` и не
+перезаписывает существующий. Тот же decision без изменений помещается в
+поле `adoption_decision` основного conformance evidence. Главный валидатор
+повторно вычисляет его gate и запрещает ручной
+`operations.adoption_decisions=PASS`, если decision заблокирован или у строки
+нет `artifact:` reference на сохранённый report. Embedded environment и restore
+owner обязаны совпадать с target evidence; общий `approved_rpo_seconds` равен
+худшему из PostgreSQL/Document Store RPO, а `approved_rto_seconds` — full
+restore RTO. Решение должно быть утверждено до `started_at` rollout evidence.
 
 ## 2. Release gate
 

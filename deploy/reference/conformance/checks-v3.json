@@ -1,0 +1,30 @@
+{
+  "registry_version": 3,
+  "checks": [
+    { "id": "release.director", "category": "release", "stop_ship": true },
+    { "id": "release.gateway", "category": "release", "stop_ship": true },
+    { "id": "release.ui", "category": "release", "stop_ship": true },
+    { "id": "release.deployment", "category": "release", "stop_ship": true },
+    { "id": "deployment.kubernetes_contract", "category": "deployment", "stop_ship": true },
+    { "id": "edge.nginx_config", "category": "edge", "stop_ship": true },
+    { "id": "edge.external_contract", "category": "edge", "stop_ship": true },
+    { "id": "mtls.certificate_profile", "category": "mtls", "stop_ship": true },
+    { "id": "mtls.live_director_to_gateway", "category": "mtls", "stop_ship": true },
+    { "id": "mtls.live_gateway_to_director", "category": "mtls", "stop_ship": true },
+    { "id": "workload_identity.live_director_to_gateway", "category": "workload_identity", "stop_ship": true },
+    { "id": "workload_identity.live_gateway_to_director", "category": "workload_identity", "stop_ship": true },
+    { "id": "postgres.migration_status", "category": "postgres", "stop_ship": true },
+    { "id": "postgres.runtime_privileges", "category": "postgres", "stop_ship": true },
+    { "id": "postgres.contention", "category": "postgres", "stop_ship": true },
+    { "id": "postgres.logical_restore", "category": "postgres", "stop_ship": true },
+    { "id": "postgres.pitr_restore", "category": "postgres", "stop_ship": true },
+    { "id": "oidc.discovery", "category": "oidc", "stop_ship": true },
+    { "id": "oidc.browser_canary", "category": "oidc", "stop_ship": true },
+    { "id": "application.primary_canary", "category": "application", "stop_ship": true },
+    { "id": "application.failure_modes", "category": "application", "stop_ship": true },
+    { "id": "operations.adoption_decisions", "category": "operations", "stop_ship": true },
+    { "id": "operations.rollback", "category": "operations", "stop_ship": true },
+    { "id": "operations.observability", "category": "operations", "stop_ship": true },
+    { "id": "evidence.peer_review", "category": "evidence", "stop_ship": true }
+  ]
+}

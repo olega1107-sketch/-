@@ -37,6 +37,18 @@ Document Store без PostgreSQL не восстанавливает identity, R
 
 Reference-проект намеренно не подставляет произвольные числовые значения. Gate
 считается незавершённым, пока значения не утверждены владельцем данных.
+Значения, backup/restore/failover owners, retention, maintenance window и
+максимальный возраст restore drill фиксируются
+в `deploy/reference/pilot-adoption-decision-template-v1.json` и проверяются:
+
+```bash
+cd deploy/reference
+node scripts/pilot-adoption-decision.mjs \
+  /secure/change/CHG-123/pilot-adoption-decision.json
+```
+
+RPO/alert thresholds для PostgreSQL и Document Store проверяются отдельно;
+положительный общий RPO в итоговом conformance evidence не заменяет этот gate.
 
 ## 3. Стратегия PostgreSQL
 

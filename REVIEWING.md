@@ -36,7 +36,7 @@ slice, но не является утверждённым production deployment
 | Application/API | [Director API](docs/dirizhor/director-api-v1.md), [OpenAPI](api/openapi-v1.yaml), [Gateway protocol](docs/dirizhor/agent-gateway-v1.md) | HTTP contracts и state transitions согласованы |
 | Security | [Auth/RBAC](docs/dirizhor/auth-rbac-v1.md), [OIDC](docs/dirizhor/oidc-sso-v1.md), [mTLS](docs/dirizhor/service-mtls-v1.md) | Trust boundaries и deny/confirm/audit не обходятся |
 | Data | [PostgreSQL schema](docs/dirizhor/postgresql-schema-v1.md), [migrations](db/production-migration-runbook.md), [backup/restore](docs/dirizhor/backup-restore-v1.md) | Persistence, migration и recovery contracts полны |
-| Platform/SRE | [Deployment profile](deploy/reference/README.md), [Kubernetes](deploy/reference/kubernetes-target-runbook.md), [conformance](deploy/reference/target-conformance-runbook.md) | Release, rollout, failure и rollback evidence достаточны |
+| Platform/SRE | [Deployment profile](deploy/reference/README.md), [Kubernetes](deploy/reference/kubernetes-target-runbook.md), [conformance](deploy/reference/target-conformance-runbook.md) | Adoption, SLO/recovery, rollout, failure и rollback evidence достаточны |
 | Engineering | [Reference Director](director/reference/README.md), [Reference Gateway](gateway/reference/README.md), [Reference UI](ui/reference/README.md) | Reference code соответствует спецификациям |
 
 ## Как фиксировать замечания

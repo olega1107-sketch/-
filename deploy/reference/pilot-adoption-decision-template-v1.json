@@ -1,0 +1,53 @@
+{
+  "schema_version": 1,
+  "decision_id": "replace-decision-id",
+  "environment": "replace-target-environment",
+  "profile_id": "dirizhor-pilot-single-replica-recreate-v1",
+  "architecture_commit": "0000000000000000000000000000000000000000",
+  "owners": {
+    "decision": "replace-decision-owner",
+    "service": "replace-service-owner",
+    "backup": "replace-backup-owner",
+    "restore": "replace-restore-owner",
+    "incident": "replace-incident-owner",
+    "failover": "replace-failover-owner",
+    "alerts": "replace-alert-owner",
+    "reviewer": "replace-independent-reviewer"
+  },
+  "availability": {
+    "slo_target_basis_points": 0,
+    "measurement_window_days": 0,
+    "maximum_planned_outage_seconds": 0,
+    "maximum_unplanned_outage_seconds": 0,
+    "planned_maintenance_counts_against_slo": true,
+    "maintenance_window_ref": "replace-maintenance-window-reference"
+  },
+  "recovery": {
+    "postgresql_rpo_seconds": 0,
+    "document_store_rpo_seconds": 0,
+    "full_restore_rto_seconds": 0,
+    "failover_rto_seconds": 0,
+    "maximum_restore_drill_age_seconds": 0,
+    "backup_retention_days": 0
+  },
+  "alerts": {
+    "readiness_failure_seconds": 0,
+    "http_error_rate_basis_points": 0,
+    "http_error_rate_window_seconds": 0,
+    "http_latency_p95_ms": 0,
+    "postgresql_wal_archive_lag_seconds": 0,
+    "document_store_backup_age_seconds": 0,
+    "restore_drill_age_seconds": 0
+  },
+  "profile_risks": {
+    "director_single_replica_accepted": false,
+    "gateway_single_replica_accepted": false,
+    "recreate_rollout_outage_accepted": false,
+    "risk_acceptance_ref": null
+  },
+  "approval": {
+    "status": "DRAFT",
+    "decided_at": null,
+    "evidence_refs": []
+  }
+}

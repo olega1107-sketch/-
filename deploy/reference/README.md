@@ -27,6 +27,9 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/certificate-preflight.mjs` — fail-closed проверка до пяти service
   certificate profiles;
 - `scripts/conformance-evidence.mjs` — fail-closed валидатор target evidence;
+- `scripts/pilot-adoption-decision.mjs` и
+  `pilot-adoption-decision-template-v1.json` — проверяемое утверждение SLO,
+  outage limits, RPO/RTO, owners, alert thresholds и рисков pilot profile;
 - `scripts/release-evidence.mjs` — изолированный сбор release evidence для
   Director, Gateway и UI; все frozen offline installs завершаются до первой
   cross-package проверки, а фактическая версия pnpm сверяется с package metadata;
@@ -52,10 +55,11 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/architecture-review.mjs`, review template и
   `architecture-review-runbook.md` — проверяемый gate шести ролевых дорожек,
   замечаний и независимого финального решения по exact Git baseline;
-- `conformance/checks-v2.json` и `conformance/evidence-template-v2.json` —
-  текущий versioned registry обязательных проверок и строгий шаблон отчёта;
-- `conformance/checks-v1.json` и `conformance/evidence-template-v1.json` —
-  сохранённый исторический контракт до Kubernetes deployment gate;
+- `conformance/checks-v3.json` и `conformance/evidence-template-v3.json` —
+  текущий versioned registry обязательных проверок и строгий шаблон отчёта со
+  встроенной повторной проверкой pilot adoption decision;
+- `conformance/checks-v2.json`, `conformance/evidence-template-v2.json` и v1 —
+  сохранённые исторические контракты до adoption/workload-identity gates;
 - `Dockerfile.edge`, Director/Gateway Dockerfiles и
   `container-runtime-contract.md` — multi-stage non-root images и требования
   orchestrator hardening;

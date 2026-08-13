@@ -3,10 +3,12 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { validatePilotAdoptionDecision } from './pilot-adoption-decision.mjs';
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultRegistryPath = path.resolve(
   scriptDirectory,
-  '../conformance/checks-v2.json',
+  '../conformance/checks-v3.json',
 );
 const identifierPattern = /^[A-Za-z0-9][A-Za-z0-9._:/#-]{0,255}$/;
 const ownerPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{1,127}$/;
@@ -25,7 +27,7 @@ export async function loadRegistry(registryPath = defaultRegistryPath) {
   }
   assertObject(document, 'registry');
   assertExactKeys(document, ['registry_version', 'checks'], 'registry');
-  if (document.registry_version !== 2 || !Array.isArray(document.checks)) {
+  if (document.registry_version !== 3 || !Array.isArray(document.checks)) {
     throw new Error('The conformance registry has an unsupported shape.');
   }
   const ids = new Set();
@@ -62,6 +64,7 @@ export function validateEvidence(document, registry) {
       'artifacts',
       'target',
       'recovery',
+      'adoption_decision',
       'owners',
       'checks',
     ],
@@ -81,7 +84,31 @@ export function validateEvidence(document, registry) {
   validateArtifacts(document.artifacts);
   validateTarget(document.target);
   validateRecovery(document.recovery);
+  const adoptionDecision = validatePilotAdoptionDecision(document.adoption_decision);
   validateOwners(document.owners);
+  if (adoptionDecision.environment !== document.environment) {
+    throw new Error('Adoption decision environment differs from target evidence.');
+  }
+  if (
+    document.recovery.approved_rpo_seconds !==
+      Math.max(
+        adoptionDecision.recovery.postgresql_rpo_seconds,
+        adoptionDecision.recovery.document_store_rpo_seconds,
+      ) ||
+    document.recovery.approved_rto_seconds !==
+      adoptionDecision.recovery.full_restore_rto_seconds
+  ) {
+    throw new Error('Target recovery objectives differ from the adoption decision.');
+  }
+  if (document.owners.restore !== adoptionDecision.owners.restore) {
+    throw new Error('Target restore owner differs from the adoption decision.');
+  }
+  if (
+    adoptionDecision.approval.status === 'APPROVED' &&
+    timestamp(adoptionDecision.approval.decided_at, 'adoption decided_at') > startedAt
+  ) {
+    throw new Error('Pilot adoption must be approved before target execution starts.');
+  }
 
   if (!Array.isArray(document.checks)) {
     throw new Error('Evidence checks must be an array.');
@@ -134,6 +161,12 @@ export function validateEvidence(document, registry) {
       ) {
         throw new Error('Evidence references must be unique opaque identifiers.');
       }
+      if (
+        check.id === 'operations.adoption_decisions' &&
+        !check.evidence_refs.some((reference) => reference.startsWith('artifact:'))
+      ) {
+        throw new Error('Adoption decision check requires a validated report artifact.');
+      }
     }
     seen.add(check.id);
     counts[check.status] += 1;
@@ -141,6 +174,12 @@ export function validateEvidence(document, registry) {
   }
   if (seen.size !== registryById.size) {
     throw new Error('Evidence does not cover every required check.');
+  }
+  const adoptionCheck = document.checks.find(
+    (check) => check.id === 'operations.adoption_decisions',
+  );
+  if (adoptionCheck.status === 'PASS' && adoptionDecision.gate_status !== 'PASS') {
+    throw new Error('Adoption decision check cannot pass a blocked decision.');
   }
 
   normalizedChecks.sort((left, right) => left.id.localeCompare(right.id));
@@ -156,6 +195,10 @@ export function validateEvidence(document, registry) {
       fail: counts.FAIL,
       not_run: counts.NOT_RUN,
       required: registryById.size,
+    },
+    adoption_decision: {
+      gate_status: adoptionDecision.gate_status,
+      report_sha256: adoptionDecision.report_sha256,
     },
     checks: normalizedChecks,
     report_sha256: canonicalHash({

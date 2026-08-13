@@ -76,6 +76,11 @@ export const requiredReviewFiles = Object.freeze([
   'deploy/reference/architecture-review-runbook.md',
   'deploy/reference/conformance/architecture-review-template-v1.json',
   'deploy/reference/scripts/architecture-review.mjs',
+  'deploy/reference/conformance/checks-v3.json',
+  'deploy/reference/conformance/evidence-template-v3.json',
+  'deploy/reference/pilot-adoption-decision-template-v1.json',
+  'deploy/reference/scripts/pilot-adoption-decision.mjs',
+  'deploy/reference/scripts/conformance-evidence.mjs',
   'deploy/reference/target-conformance-runbook.md',
 ]);
 

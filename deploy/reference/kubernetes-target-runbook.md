@@ -16,6 +16,10 @@ Director и Gateway в pilot имеют по одной replica и `Recreate` st
 распределёнными. Edge имеет минимум две replicas, rolling update, topology
 spread и PodDisruptionBudget. Масштабирование stateful services выше одной
 replica запрещено до shared Document Store и распределённого Gateway store.
+До rollout decision owner обязан утвердить этот риск, допустимое окно простоя,
+SLO/RPO/RTO, владельцев и alert thresholds через
+`pilot-adoption-decision.mjs`. Без `gate_status=PASS` проверка
+`operations.adoption_decisions` остаётся `NOT_RUN` и блокирует rollout.
 
 ## 2. Render
 

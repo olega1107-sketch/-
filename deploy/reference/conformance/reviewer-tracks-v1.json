@@ -1,0 +1,147 @@
+{
+  "schema_version": 1,
+  "tracks": [
+    {
+      "id": "product_domain",
+      "title": "Product and domain",
+      "objective": "Confirm that terminology, lifecycle, ownership and user-visible scenarios match the intended Dirizhor operating model.",
+      "documents": [
+        "docs/dirizhor/context.md",
+        "docs/dirizhor/constitution.md",
+        "docs/dirizhor/mvp-scenarios.md",
+        "docs/dirizhor/corporate-memory.md",
+        "docs/dirizhor/data-model-v1.md",
+        "docs/dirizhor/ai-roles.md"
+      ],
+      "questions": [
+        "Are the user, decision owner, Director and AI responsibilities unambiguous?",
+        "Do the lifecycle states cover the confirmed MVP scenarios without hidden business decisions?",
+        "Are corporate memory provenance, replacement and retention semantics understandable?"
+      ],
+      "completion_requirements": [
+        "Record contradictions, missing decisions and terminology findings with exact locations.",
+        "Confirm that every blocking or major domain finding has an owner and disposition.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    },
+    {
+      "id": "application_api",
+      "title": "Application and API",
+      "objective": "Verify that HTTP contracts, state transitions, errors and Director-Gateway interactions are mutually consistent.",
+      "documents": [
+        "docs/dirizhor/module-boundaries.md",
+        "docs/dirizhor/director-api-v1.md",
+        "docs/dirizhor/openapi-v1.md",
+        "api/openapi-v1.yaml",
+        "api/openapi-pilot-v1.yaml",
+        "docs/dirizhor/agent-gateway-v1.md",
+        "director/reference/README.md",
+        "gateway/reference/README.md"
+      ],
+      "questions": [
+        "Do prose, OpenAPI and reference handlers define the same request, response and error contracts?",
+        "Are idempotency, pagination, concurrency and confirmation transitions fail-closed?",
+        "Can any public or internal route bypass the declared module boundary?"
+      ],
+      "completion_requirements": [
+        "Trace at least one read-only and one mutating MVP flow across API boundaries.",
+        "Record every contract mismatch with an exact operation or schema location.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    },
+    {
+      "id": "security",
+      "title": "Security",
+      "objective": "Challenge authentication, authorization, confirmation, audit and service trust boundaries for bypasses and unsafe defaults.",
+      "documents": [
+        "docs/dirizhor/architecture-guardrails.md",
+        "docs/dirizhor/auth-rbac-v1.md",
+        "docs/dirizhor/oidc-sso-v1.md",
+        "docs/dirizhor/oidc-operations-runbook.md",
+        "docs/dirizhor/service-mtls-v1.md",
+        "deploy/reference/target-canary-runbook.md",
+        "deploy/reference/target-conformance-runbook.md"
+      ],
+      "questions": [
+        "Can UI, AI, Gateway, operator or a service identity bypass deny, RBAC, confirmation or audit?",
+        "Are browser, workload-token, mTLS and secret boundaries independent and fail-closed?",
+        "Do rotation, revocation, replay and target canaries prove the stated controls?"
+      ],
+      "completion_requirements": [
+        "Review every open security finding and identify required target evidence.",
+        "Classify authorization, confidentiality or integrity ambiguity as blocking.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    },
+    {
+      "id": "data",
+      "title": "Data and recovery",
+      "objective": "Verify persistence, migration, privilege, backup and recovery contracts against the declared data model.",
+      "documents": [
+        "docs/dirizhor/data-model-v1.md",
+        "docs/dirizhor/postgresql-schema-v1.md",
+        "db/production-migration-runbook.md",
+        "docs/dirizhor/backup-restore-v1.md",
+        "deploy/reference/kubernetes-target-runbook.md",
+        "deploy/reference/target-conformance-runbook.md"
+      ],
+      "questions": [
+        "Do logical ownership, SQL constraints and API lifecycle rules agree?",
+        "Are expand, backfill, validate, contract and rollback paths executable without runtime DDL rights?",
+        "Can backup, PITR and logical restore meet the proposed RPO and RTO with verifiable evidence?"
+      ],
+      "completion_requirements": [
+        "Review migration history, runtime privilege and restore evidence requirements.",
+        "Record any data-loss, corruption or unrecoverable migration risk as blocking.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    },
+    {
+      "id": "platform_sre",
+      "title": "Platform and SRE",
+      "objective": "Assess deployability, observability, failure isolation, recovery, rollback and operational adoption decisions.",
+      "documents": [
+        "deploy/reference/README.md",
+        "deploy/reference/container-runtime-contract.md",
+        "deploy/reference/kubernetes-target-runbook.md",
+        "deploy/reference/target-conformance-runbook.md",
+        "deploy/reference/application-failure-canary-runbook.md",
+        "deploy/reference/pilot-adoption-decision-template-v1.json"
+      ],
+      "questions": [
+        "Are rollout order, probes, stop-ship criteria and rollback ownership explicit?",
+        "Are SLO, outage budget, RPO, RTO, retention and alert thresholds mutually consistent?",
+        "Does every production-readiness claim have target-specific, independently reviewable evidence?"
+      ],
+      "completion_requirements": [
+        "Review all NOT_RUN target checks and adoption decision placeholders.",
+        "Identify the owner and evidence source for each accepted operational risk.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    },
+    {
+      "id": "engineering",
+      "title": "Engineering implementation",
+      "objective": "Confirm that reference code, tests, build artifacts and evidence tooling implement the published specifications without hidden dependencies.",
+      "documents": [
+        "director/reference/README.md",
+        "gateway/reference/README.md",
+        "ui/reference/README.md",
+        "deploy/reference/README.md",
+        "deploy/reference/scripts/release-evidence.mjs",
+        "deploy/reference/scripts/release-evidence-verify.mjs",
+        "deploy/reference/scripts/review-package-preflight.mjs"
+      ],
+      "questions": [
+        "Do implementation and tests enforce the architecture guardrails at runtime boundaries?",
+        "Are build and release results reproducible from the exact reviewed Git baseline?",
+        "Can evidence tooling be bypassed by dirty sources, ignored private files or artifact drift?"
+      ],
+      "completion_requirements": [
+        "Verify release evidence and source/build matches for the exact baseline.",
+        "Record untested shared behavior, hidden workspace dependency or evidence gap.",
+        "Attach an opaque ticket or artifact reference to the completed track."
+      ]
+    }
+  ]
+}

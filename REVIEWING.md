@@ -39,6 +39,12 @@ slice, но не является утверждённым production deployment
 | Platform/SRE | [Deployment profile](deploy/reference/README.md), [Kubernetes](deploy/reference/kubernetes-target-runbook.md), [conformance](deploy/reference/target-conformance-runbook.md) | Adoption, SLO/recovery, rollout, failure и rollback evidence достаточны |
 | Engineering | [Reference Director](director/reference/README.md), [Reference Gateway](gateway/reference/README.md), [Reference UI](ui/reference/README.md) | Reference code соответствует спецификациям |
 
+Для exact baseline эти маршруты превращаются в шесть отдельных рабочих briefs
+через [reviewer handoff](deploy/reference/architecture-review-runbook.md). Brief
+содержит назначенного reviewer, обязательные документы, вопросы, известные
+замечания только своей дорожки и критерии завершения. Он не заменяет issue,
+решение decision owner или architecture-review gate.
+
 ## Как фиксировать замечания
 
 Одно замечание описывает одну проблему и содержит:
@@ -73,6 +79,12 @@ slice, но не является утверждённым production deployment
 `blocking`/`major`, явные решения по закрытым замечаниям и отдельного final
 reviewer. JSON с именами и замечаниями хранится в игнорируемом
 `review-output/`, а не в публикуемом baseline.
+
+Один специалист может вести несколько ролевых дорожек, если компетенция и
+организационная независимость это допускают. Final reviewer должен быть другим
+человеком: он не совпадает с decision owner или reviewer любой дорожки. Для
+назначения достаточно opaque внутренних ID; ФИО, email и персональные данные в
+review JSON и briefs не требуются.
 
 ## Безопасная выдача доступа
 

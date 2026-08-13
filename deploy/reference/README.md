@@ -55,6 +55,9 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/review-package-preflight.mjs` — fail-closed проверка чистого
   Git-снимка, secret material, runtime/evidence paths и локальных ссылок
   перед architecture review;
+- `scripts/reviewer-handoff.mjs` и `conformance/reviewer-tracks-v1.json` —
+  exact-baseline manifest и шесть защищённых role briefs для назначения и
+  проведения независимого архитектурного ревью;
 - `scripts/architecture-review.mjs`, review template и
   `architecture-review-runbook.md` — проверяемый gate шести ролевых дорожек,
   замечаний и независимого финального решения по exact Git baseline;
@@ -217,6 +220,7 @@ node --test test/target-canary.test.mjs
 node --test test/application-canary.test.mjs
 node --test test/application-failure-canary.test.mjs
 node --test test/review-package-preflight.test.mjs
+node --test test/reviewer-handoff.test.mjs
 ```
 
 Target evidence считается успешным только если validator завершился с кодом

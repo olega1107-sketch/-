@@ -15,6 +15,26 @@
 4. Использовать только непрямые идентификаторы людей и evidence, без токенов,
    URL с credentials или содержимого закрытых документов.
 
+После создания review JSON сгенерировать рабочий пакет из exact clean baseline:
+
+```bash
+node scripts/reviewer-handoff.mjs \
+  /secure/review/ARCH-2026-001/reviewer-packet \
+  /secure/review/ARCH-2026-001/architecture-review.json
+```
+
+Генератор проверяет schema review, аннотированный tag, совпадение workspace
+`HEAD` с baseline commit, чистый Git snapshot и наличие всех документов в
+tracked source set. Новый output directory имеет mode `0700`; manifest и шесть
+role briefs — `0600`. Ignored/untracked материалы, credentials и закрытое
+evidence содержимое в пакет не переносятся.
+
+`assignments_complete=false` допустим для планирования и означает, что briefs
+можно изучать, но дорожки ещё не назначены. После заполнения opaque reviewer ID
+пакет генерируется заново в новом каталоге. Даже
+`assignments_complete=true` не является одобрением: завершение фиксирует только
+основной architecture-review gate.
+
 Запуск из корня репозитория:
 
 ```bash
@@ -64,3 +84,8 @@ conformance checks и не доказывает production readiness.
 Валидатор доказывает полноту и непротиворечивость реестра, а также соответствие
 аннотированного tag заявленному commit. Подлинность внешних ticket/change/run
 references проверяет final reviewer в системе, которая этими объектами владеет.
+
+Versioned вопросы, документы и критерии шести briefs находятся в
+[`reviewer-tracks-v1.json`](conformance/reviewer-tracks-v1.json). Изменение
+registry требует нового Git baseline; локальная правка готового brief не
+изменяет review contract и не считается evidence.

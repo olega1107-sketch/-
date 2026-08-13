@@ -10,6 +10,8 @@ vertical slice. Подтвержденная часть архитектуры �
 Все технические спецификации v1, включая SQL и OpenAPI, остаются
 архитектурными черновиками до отдельного утверждения.
 Коллективное изучение начинается с [руководства для reviewer](REVIEWING.md).
+Назначение дорожек и генерация role briefs выполняются по
+[architecture review runbook](deploy/reference/architecture-review-runbook.md).
 
 ## Основные документы
 

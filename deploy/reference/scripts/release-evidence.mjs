@@ -5,6 +5,7 @@ import {
   chmod,
   lstat,
   mkdir,
+  readFile,
   readdir,
   rm,
   writeFile,
@@ -16,6 +17,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWorkspaceRoot = path.resolve(scriptDirectory, '../../..');
 const executionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/;
 const safeRelativePathPattern = /^[A-Za-z0-9._/-]+$/;
+const expectedPnpmVersion = '11.16.0';
 const allowedCheckIds = new Set([
   'release.director',
   'release.gateway',
@@ -36,8 +38,10 @@ export const releaseProfiles = [
     id: 'release.director',
     directory: 'director/reference',
     artifact_kind: 'build',
-    commands: [
+    preparation_commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
+    ],
+    commands: [
       ['pnpm', ['db:checksums']],
       ['pnpm', ['check']],
       ['pnpm', ['lint']],
@@ -49,8 +53,10 @@ export const releaseProfiles = [
     id: 'release.gateway',
     directory: 'gateway/reference',
     artifact_kind: 'build',
-    commands: [
+    preparation_commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
+    ],
+    commands: [
       ['pnpm', ['check']],
       ['pnpm', ['lint']],
       ['pnpm', ['test', '--', '--maxWorkers=2']],
@@ -61,8 +67,10 @@ export const releaseProfiles = [
     id: 'release.ui',
     directory: 'ui/reference',
     artifact_kind: 'build',
-    commands: [
+    preparation_commands: [
       ['pnpm', ['install', '--frozen-lockfile', '--offline']],
+    ],
+    commands: [
       ['pnpm', ['check']],
       ['pnpm', ['test', '--', '--maxWorkers=2']],
       ['pnpm', ['build']],
@@ -108,6 +116,7 @@ export async function collectReleaseEvidence({
   const checks = [];
 
   try {
+    const toolchain = await verifyReleaseToolchain(root, profiles, runner);
     const sourceBefore = await sourceTreeManifest(root);
     const sourceDocument = {
       schema_version: 1,
@@ -117,6 +126,19 @@ export async function collectReleaseEvidence({
       files: sourceBefore.files,
     };
     await writePrivateJson(path.join(output, 'source-manifest.json'), sourceDocument);
+    const preparations = new Map();
+    for (const profile of profiles) {
+      const workingDirectory = safeWorkspacePath(root, profile.directory);
+      await assertProfileDirectory(workingDirectory, profile.artifact_kind);
+      preparations.set(
+        profile.id,
+        await runProfileCommands(
+          profile.preparation_commands ?? [],
+          workingDirectory,
+          runner,
+        ),
+      );
+    }
     for (const profile of profiles) {
       checks.push(
         await collectProfile({
@@ -124,6 +146,7 @@ export async function collectReleaseEvidence({
           output,
           executionId,
           profile,
+          preparation: preparations.get(profile.id),
           runner,
         }),
       );
@@ -139,6 +162,7 @@ export async function collectReleaseEvidence({
       execution_id: executionId,
       started_at: startedAt,
       completed_at: completedAt,
+      toolchain,
       source: {
         manifest_file: 'source-manifest.json',
         manifest_sha256: canonicalHash(sourceDocument),
@@ -168,39 +192,62 @@ export async function collectReleaseEvidence({
   }
 }
 
-async function collectProfile({ root, output, executionId, profile, runner }) {
+async function verifyReleaseToolchain(root, profiles, runner) {
+  const pnpmProfiles = profiles.filter((profile) =>
+    [...(profile.preparation_commands ?? []), ...profile.commands].some(
+      ([program]) => program === 'pnpm',
+    ),
+  );
+  if (pnpmProfiles.length === 0) {
+    return { pnpm_version: null };
+  }
+  for (const profile of pnpmProfiles) {
+    const packagePath = path.join(
+      safeWorkspacePath(root, profile.directory),
+      'package.json',
+    );
+    const document = JSON.parse(await readFile(packagePath, 'utf8'));
+    if (document.packageManager !== `pnpm@${expectedPnpmVersion}`) {
+      throw new Error('Every release package must pin the approved pnpm version.');
+    }
+  }
+  const result = await runner('pnpm', ['--version'], {
+    cwd: root,
+    environment: childEnvironment(),
+  });
+  const version = result.stdout.trim();
+  if (result.exitCode !== 0 || version !== expectedPnpmVersion) {
+    throw new Error(`Release builder requires pnpm ${expectedPnpmVersion}.`);
+  }
+  return { pnpm_version: version };
+}
+
+async function collectProfile({
+  root,
+  output,
+  executionId,
+  profile,
+  preparation,
+  runner,
+}) {
   const workingDirectory = safeWorkspacePath(root, profile.directory);
   await assertProfileDirectory(workingDirectory, profile.artifact_kind);
   if (profile.artifact_kind === 'build') {
     await rm(path.join(workingDirectory, 'dist'), { recursive: true, force: true });
   }
-  const commandRecords = [];
-  const logParts = [];
-  let status = 'PASS';
+  const commandRecords = [...(preparation?.commandRecords ?? [])];
+  const logParts = [...(preparation?.logParts ?? [])];
+  let status = preparation?.status ?? 'PASS';
 
-  for (const [program, arguments_] of profile.commands) {
-    const result = await runner(program, arguments_, {
-      cwd: workingDirectory,
-      environment: childEnvironment(),
-    });
-    commandRecords.push({
-      program,
-      arguments: arguments_,
-      exit_code: result.exitCode,
-      duration_ms: result.durationMs,
-    });
-    logParts.push(
-      `$ ${program} ${arguments_.join(' ')}\n`,
-      `exit_code=${result.exitCode ?? 'not_executed'} duration_ms=${result.durationMs}\n`,
-      result.stdout,
-      result.stdout.endsWith('\n') ? '' : '\n',
-      result.stderr,
-      result.stderr.length === 0 || result.stderr.endsWith('\n') ? '' : '\n',
+  if (status === 'PASS') {
+    const verification = await runProfileCommands(
+      profile.commands,
+      workingDirectory,
+      runner,
     );
-    if (result.exitCode !== 0) {
-      status = 'FAIL';
-      break;
-    }
+    commandRecords.push(...verification.commandRecords);
+    logParts.push(...verification.logParts);
+    status = verification.status;
   }
 
   const slug = profile.id.replaceAll('.', '-');
@@ -227,6 +274,37 @@ async function collectProfile({ root, output, executionId, profile, runner }) {
     commands: commandRecords,
     artifact,
   };
+}
+
+async function runProfileCommands(commands, workingDirectory, runner) {
+  const commandRecords = [];
+  const logParts = [];
+  let status = 'PASS';
+  for (const [program, arguments_] of commands) {
+    const result = await runner(program, arguments_, {
+      cwd: workingDirectory,
+      environment: childEnvironment(),
+    });
+    commandRecords.push({
+      program,
+      arguments: arguments_,
+      exit_code: result.exitCode,
+      duration_ms: result.durationMs,
+    });
+    logParts.push(
+      `$ ${program} ${arguments_.join(' ')}\n`,
+      `exit_code=${result.exitCode ?? 'not_executed'} duration_ms=${result.durationMs}\n`,
+      result.stdout,
+      result.stdout.endsWith('\n') ? '' : '\n',
+      result.stderr,
+      result.stderr.length === 0 || result.stderr.endsWith('\n') ? '' : '\n',
+    );
+    if (result.exitCode !== 0) {
+      status = 'FAIL';
+      break;
+    }
+  }
+  return { status, commandRecords, logParts };
 }
 
 async function buildArtifactEvidence(workingDirectory, output, slug) {
@@ -442,7 +520,17 @@ function validateProfiles(profiles) {
     ) {
       throw new Error('Release profiles are invalid.');
     }
-    for (const command of profile.commands) {
+    if (
+      profile.preparation_commands !== undefined &&
+      (!Array.isArray(profile.preparation_commands) ||
+        profile.preparation_commands.length === 0)
+    ) {
+      throw new Error('Release profile preparation commands are invalid.');
+    }
+    for (const command of [
+      ...(profile.preparation_commands ?? []),
+      ...profile.commands,
+    ]) {
       if (
         !Array.isArray(command) ||
         command.length !== 2 ||

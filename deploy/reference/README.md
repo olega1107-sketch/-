@@ -28,7 +28,8 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
   certificate profiles;
 - `scripts/conformance-evidence.mjs` — fail-closed валидатор target evidence;
 - `scripts/release-evidence.mjs` — изолированный сбор release evidence для
-  Director, Gateway и UI;
+  Director, Gateway и UI; все frozen offline installs завершаются до первой
+  cross-package проверки, а фактическая версия pnpm сверяется с package metadata;
 - `scripts/container-preflight.mjs` — статическая проверка OCI build/runtime
   contracts и canonical base image references;
 - `scripts/oci-release.mjs` и `oci-release-config.example.json` — fail-closed

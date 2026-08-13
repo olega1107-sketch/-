@@ -58,8 +58,11 @@ cd deploy/reference
 node scripts/release-evidence.mjs /secure/change/CHG-123/release-evidence CHG-123
 ```
 
-Collector не наследует application secrets, удаляет старые `dist`, использует
-`pnpm install --frozen-lockfile --offline`, сохраняет logs/manifests с mode
+Collector не наследует application secrets, сначала завершает frozen offline
+install для Director, Gateway и UI, затем удаляет старые `dist` и выполняет
+cross-package checks. До install фактическая версия pnpm fail-closed сверяется
+с exact `packageManager` всех трёх пакетов и записывается в manifest. Collector
+сохраняет logs/manifests с mode
 `0600`, хеширует source tree до и после запуска, package file, lockfile и каждый
 build artifact. Отдельный `release.deployment` запускает все Node tests в
 `deploy/reference/test` и сохраняет hash проверенного tooling tree. Изменение

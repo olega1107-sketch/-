@@ -597,6 +597,104 @@ describe('Public Director HTTP contract', () => {
     expect(response.json()).toMatchObject({ error: { code: 'validation_error' } });
   });
 
+  it('approves and supersedes decisions through public confirmation endpoints', async () => {
+    ({ app } = await createApp());
+    const decisionId = '40000000-0000-4000-8000-000000000020';
+    const approvalRequestId = '40000000-0000-4000-8000-000000000030';
+    const approvalConsumeRequestId = '40000000-0000-4000-8000-000000000031';
+    const supersedeRequestId = '40000000-0000-4000-8000-000000000032';
+    const supersedeConsumeRequestId = '40000000-0000-4000-8000-000000000033';
+    const successorId = '40000000-0000-4000-8000-000000000024';
+    await app.inject({
+      method: 'POST',
+      url: '/api/v1/decisions',
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': '40000000-0000-4000-8000-000000000034',
+      },
+      payload: {
+        project_id: ids.project,
+        title: 'Pilot decision',
+        decision_text: 'Use the pilot API.',
+        status: 'proposed',
+      },
+    });
+
+    const approvalRequired = await app.inject({
+      method: 'POST',
+      url: `/api/v1/decisions/${decisionId}:approve`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': approvalRequestId,
+      },
+    });
+    expect(approvalRequired.statusCode, approvalRequired.body).toBe(428);
+    const approvalId = requiredConfirmationId(approvalRequired.json());
+    const approved = await app.inject({
+      method: 'POST',
+      url: `/api/v1/confirmations/${approvalId}:approve`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': approvalConsumeRequestId,
+      },
+    });
+    expect(approved.statusCode, approved.body).toBe(200);
+    expect(approved.json()).toMatchObject({
+      operation: 'decision_approve',
+      status: 'consumed',
+    });
+
+    const supersedeRequired = await app.inject({
+      method: 'POST',
+      url: `/api/v1/decisions/${decisionId}:supersede`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': supersedeRequestId,
+      },
+      payload: {
+        title: 'Verified pilot decision',
+        decision_text: 'Use only the verified pilot API.',
+      },
+    });
+    expect(supersedeRequired.statusCode, supersedeRequired.body).toBe(428);
+    const supersedeId = requiredConfirmationId(supersedeRequired.json());
+    const superseded = await app.inject({
+      method: 'POST',
+      url: `/api/v1/confirmations/${supersedeId}:approve`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': supersedeConsumeRequestId,
+      },
+    });
+    expect(superseded.statusCode, superseded.body).toBe(200);
+    expect(superseded.json()).toMatchObject({
+      operation: 'decision_supersede',
+      status: 'consumed',
+    });
+
+    const replay = await app.inject({
+      method: 'POST',
+      url: `/api/v1/decisions/${decisionId}:supersede`,
+      headers: {
+        authorization: `Bearer ${publicToken}`,
+        'x-request-id': supersedeRequestId,
+      },
+      payload: {
+        title: 'Verified pilot decision',
+        decision_text: 'Use only the verified pilot API.',
+      },
+    });
+    expect(replay.statusCode, replay.body).toBe(201);
+    expect(replay.json()).toMatchObject({
+      superseded_decision: { id: decisionId, status: 'superseded' },
+      new_decision: {
+        id: successorId,
+        status: 'approved',
+        supersedes_decision_id: decisionId,
+      },
+    });
+  });
+
   it('returns Gateway backpressure in the public error envelope', async () => {
     ({ app } = await createApp(undefined, new RecordingGateway(1)));
     await app.inject({
@@ -880,7 +978,12 @@ async function createApp(
         idGenerator: new SequenceIds([
           '40000000-0000-4000-8000-000000000020',
           '40000000-0000-4000-8000-000000000021',
+          '40000000-0000-4000-8000-000000000024',
+          '40000000-0000-4000-8000-000000000025',
+          '40000000-0000-4000-8000-000000000026',
+          '40000000-0000-4000-8000-000000000027',
         ]),
+        clock: fixture.clock,
       }),
       queries: new PublicQueryService({
         repository: new PostgresPublicQueryRepository(fixture.database),

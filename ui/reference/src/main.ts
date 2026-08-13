@@ -32,10 +32,13 @@ import {
   login,
   logout,
   oidcLoginUrl,
+  requestDecisionApproval,
+  supersedeDecision,
   type Confirmation,
   type ConfirmationStatus,
   type DecisionCreateInput,
   type DecisionProvenance,
+  type DecisionSupersedeInput,
   type Project,
   type RelationshipEndpointType,
   type RelationshipType,
@@ -74,6 +77,8 @@ let toastTimer: number | undefined;
 let currentView: 'confirmations' | 'decisions' = 'confirmations';
 let currentDecisionId: string | null = null;
 let sourceRowSequence = 0;
+let decisionFormMode: 'create' | 'supersede' = 'create';
+let decisionFormTargetId: string | null = null;
 
 const authView = required<HTMLElement>('auth-view');
 const workspace = required<HTMLElement>('workspace');
@@ -123,6 +128,11 @@ const createDialogClose = required<HTMLButtonElement>('create-dialog-close');
 const createDialogCancel = required<HTMLButtonElement>('create-dialog-cancel');
 const addSourceButton = required<HTMLButtonElement>('add-source-button');
 const sourceList = required<HTMLElement>('source-list');
+const decisionFormEyebrow = required<HTMLElement>('decision-form-eyebrow');
+const decisionFormTitle = required<HTMLElement>('decision-form-title');
+const decisionStatusField = required<HTMLElement>('decision-status-field');
+const decisionFormSubmit = required<HTMLButtonElement>('decision-form-submit');
+const decisionFormSubmitLabel = required<HTMLElement>('decision-form-submit-label');
 
 authForm.addEventListener('submit', (event) => void authenticate(event));
 oidcLogin.href = oidcLoginUrl;
@@ -232,13 +242,16 @@ function updateProjectLabel(): void {
   projectLabel.textContent = projectSelect.selectedOptions[0]?.textContent ?? 'Нет доступных проектов';
 }
 
-function selectWorkspaceView(view: 'confirmations' | 'decisions'): void {
+function selectWorkspaceView(
+  view: 'confirmations' | 'decisions',
+  refresh = true,
+): void {
   currentView = view;
   confirmationsView.hidden = view !== 'confirmations';
   decisionsView.hidden = view !== 'decisions';
   confirmationsNav.classList.toggle('active', view === 'confirmations');
   decisionsNav.classList.toggle('active', view === 'decisions');
-  if (view === 'confirmations') {
+  if (view === 'confirmations' && refresh) {
     void loadQueue(true);
   }
 }
@@ -291,6 +304,11 @@ async function loadDecision(decisionId: string): Promise<void> {
 
 function renderDecision(provenance: DecisionProvenance): void {
   const decision = provenance.decision;
+  const actions = decision.status === 'draft' || decision.status === 'proposed'
+    ? `<div class="decision-actions"><button class="button primary" data-decision-action="approve" type="button"><i data-lucide="shield-check"></i><span>Запросить утверждение</span></button></div>`
+    : decision.status === 'approved'
+      ? `<div class="decision-actions"><button class="button secondary" data-decision-action="supersede" type="button"><i data-lucide="git-branch"></i><span>Заменить решение</span></button></div>`
+      : '';
   const rationale = decision.rationale === null
     ? ''
     : `<div class="decision-rationale"><h3>Обоснование</h3><p>${escapeHtml(decision.rationale)}</p></div>`;
@@ -304,6 +322,7 @@ function renderDecision(provenance: DecisionProvenance): void {
         <h2>${escapeHtml(decision.title)}</h2>
         <p>${escapeHtml(decision.decision_text)}</p>
         ${rationale}
+        ${actions}
       </div>
       <dl class="decision-identifiers">
         <div><dt>Решение</dt><dd>${escapeHtml(decision.id)}</dd></div>
@@ -365,6 +384,14 @@ function renderDecision(provenance: DecisionProvenance): void {
   decisionDetail.hidden = false;
   decisionEmpty.hidden = true;
   decisionError.hidden = true;
+  decisionDetail.querySelector('[data-decision-action="approve"]')?.addEventListener(
+    'click',
+    () => void prepareDecisionApproval(decision.id),
+  );
+  decisionDetail.querySelector('[data-decision-action="supersede"]')?.addEventListener(
+    'click',
+    () => openSupersedeDecisionDialog(decision.id, decision.sensitivity_level),
+  );
   createIcons({ icons });
 }
 
@@ -392,12 +419,56 @@ function openCreateDecisionDialog(): void {
     return;
   }
   createDecisionForm.reset();
+  decisionFormMode = 'create';
+  decisionFormTargetId = null;
+  decisionFormEyebrow.textContent = 'Human decision';
+  decisionFormTitle.textContent = 'Новое решение';
+  decisionFormSubmitLabel.textContent = 'Создать решение';
+  decisionStatusField.hidden = false;
   createDecisionError.hidden = true;
   sourceList.replaceChildren();
   sourceRowSequence = 0;
   addSourceRow();
   createDecisionDialog.showModal();
   createDecisionForm.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
+}
+
+function openSupersedeDecisionDialog(decisionId: string, sensitivity: string): void {
+  decisionFormMode = 'supersede';
+  decisionFormTargetId = decisionId;
+  createDecisionForm.reset();
+  createDecisionError.hidden = true;
+  decisionFormEyebrow.textContent = 'Supersede';
+  decisionFormTitle.textContent = 'Заменить решение';
+  decisionFormSubmitLabel.textContent = 'Запросить замену';
+  decisionStatusField.hidden = true;
+  const sensitivitySelect = createDecisionForm.elements.namedItem('sensitivity_level');
+  if (sensitivitySelect instanceof HTMLSelectElement) sensitivitySelect.value = sensitivity;
+  sourceList.replaceChildren();
+  sourceRowSequence = 0;
+  addSourceRow();
+  createDecisionDialog.showModal();
+  createDecisionForm.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
+}
+
+async function prepareDecisionApproval(decisionId: string): Promise<void> {
+  setDecisionLoading(true);
+  try {
+    await requestDecisionApproval(decisionId);
+    await loadDecision(decisionId);
+    showToast('Решение уже утверждено');
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 428) {
+      selectWorkspaceView('confirmations', false);
+      await loadQueue(true);
+      showToast('Запрос утверждения создан');
+      return;
+    }
+    decisionErrorMessage.textContent = messageFor(error);
+    decisionError.hidden = false;
+  } finally {
+    setDecisionLoading(false);
+  }
 }
 
 function addSourceRow(): void {
@@ -431,7 +502,7 @@ function addSourceRow(): void {
 async function submitDecision(event: SubmitEvent): Promise<void> {
   event.preventDefault();
   if (!createDecisionForm.reportValidity()) return;
-  const submit = createDecisionForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+  const submit = decisionFormSubmit;
   const data = new FormData(createDecisionForm);
   const input: DecisionCreateInput = {
     project_id: projectSelect.value,
@@ -445,6 +516,33 @@ async function submitDecision(event: SubmitEvent): Promise<void> {
   setBusy(submit, true);
   createDecisionError.hidden = true;
   try {
+    if (decisionFormMode === 'supersede') {
+      if (decisionFormTargetId === null) throw new Error('Decision target is missing.');
+      const supersedeInput: DecisionSupersedeInput = {
+        title: input.title,
+        decision_text: input.decision_text,
+        rationale: input.rationale ?? null,
+        sensitivity_level: input.sensitivity_level,
+        relationships: input.relationships,
+      };
+      const targetId = decisionFormTargetId;
+      try {
+        const result = await supersedeDecision(targetId, supersedeInput);
+        createDecisionDialog.close();
+        await loadDecision(result.new_decision.id);
+        showToast('Решение заменено');
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 428) {
+          createDecisionDialog.close();
+          selectWorkspaceView('confirmations', false);
+          await loadQueue(true);
+          showToast('Запрос замены создан');
+          return;
+        }
+        throw error;
+      }
+      return;
+    }
     const created = await createDecision(input);
     createDecisionDialog.close();
     selectWorkspaceView('decisions');

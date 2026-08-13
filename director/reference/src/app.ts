@@ -30,6 +30,8 @@ import {
   DecisionIdParamsSchema,
   DecisionProvenanceSchema,
   DecisionSchema,
+  DecisionSupersedeRequestSchema,
+  DecisionSupersedeResponseSchema,
 } from './decision-protocol.js';
 import type { DecisionService } from './decision-service.js';
 import { DirectorProtocolError } from './errors.js';
@@ -871,6 +873,82 @@ export function buildDirectorApp(options: DirectorAppOptions) {
             () => decisions.createDecision(principal.userId, requestId, request.body),
           );
           return reply.header('x-request-id', requestId).status(201).send(decision);
+        },
+      );
+
+      app.post(
+        `/api/v1/decisions/${decisionRouteParameter}::approve`,
+        {
+          schema: {
+            params: DecisionIdParamsSchema,
+            headers: PublicRequestHeadersSchema,
+            response: { 200: DecisionSchema, ...publicErrorResponses },
+          },
+          preHandler: async (request) => {
+            const principal = await authenticateUser(publicApi.authenticator, request);
+            userPrincipals.set(request, principal);
+          },
+        },
+        async (request, reply) => {
+          const requestId = requestIdFor(request);
+          const principal = requiredUserPrincipal(userPrincipals, request);
+          const decision = await executeAuthorized(
+            publicApi.authorizationAudit,
+            {
+              actorUserId: principal.userId,
+              action: 'decision.approve',
+              resourceType: 'decision',
+              resourceId: request.params.decision_id,
+              projectId: null,
+              requestId,
+            },
+            () =>
+              decisions.requestDecisionApproval(
+                principal.userId,
+                requestId,
+                request.params.decision_id,
+              ),
+          );
+          return reply.header('x-request-id', requestId).status(200).send(decision);
+        },
+      );
+
+      app.post(
+        `/api/v1/decisions/${decisionRouteParameter}::supersede`,
+        {
+          schema: {
+            params: DecisionIdParamsSchema,
+            headers: PublicRequestHeadersSchema,
+            body: DecisionSupersedeRequestSchema,
+            response: { 201: DecisionSupersedeResponseSchema, ...publicErrorResponses },
+          },
+          preHandler: async (request) => {
+            const principal = await authenticateUser(publicApi.authenticator, request);
+            userPrincipals.set(request, principal);
+          },
+        },
+        async (request, reply) => {
+          const requestId = requestIdFor(request);
+          const principal = requiredUserPrincipal(userPrincipals, request);
+          const result = await executeAuthorized(
+            publicApi.authorizationAudit,
+            {
+              actorUserId: principal.userId,
+              action: 'decision.supersede',
+              resourceType: 'decision',
+              resourceId: request.params.decision_id,
+              projectId: null,
+              requestId,
+            },
+            () =>
+              decisions.supersedeDecision(
+                principal.userId,
+                requestId,
+                request.params.decision_id,
+                request.body,
+              ),
+          );
+          return reply.header('x-request-id', requestId).status(201).send(result);
         },
       );
 

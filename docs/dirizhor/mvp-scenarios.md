@@ -126,8 +126,11 @@ Reference-статус: public API читает temporary result с провер
 Reference-статус: public API атомарно создаёт human-authored `decision` и его
 карточку памяти в статусе `draft` или `proposed`, проверяет все relationship
 targets, пишет authorization decision и audit, поддерживает идемпотентный retry.
-`approved` и `supersede` исключены из pilot-профиля до реализации frozen
-confirmation workflow.
+Approval замораживает точную формулировку и связи; одноразовое
+confirmation повторно проверяет права, sensitivity и payload hash. Reject
+делает предложение terminal `rejected`. Supersede до approve не создаёт
+новую запись, а после approve атомарно создаёт approved successor со
+связью `supersedes` и закрывает прежнее решение.
 
 ## Сценарий 6. Восстановить историю решения
 

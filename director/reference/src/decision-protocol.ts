@@ -69,6 +69,29 @@ export const DecisionSchema = Type.Object(
 );
 export type Decision = Static<typeof DecisionSchema>;
 
+export const DecisionSupersedeRequestSchema = Type.Object(
+  {
+    title: Type.String({ minLength: 1 }),
+    decision_text: Type.String({ minLength: 1 }),
+    rationale: Type.Optional(NullableStringSchema),
+    sensitivity_level: Type.Optional(SensitivityLevelSchema),
+    relationships: Type.Optional(
+      Type.Array(RelationshipRefSchema, { uniqueItems: true, maxItems: 100 }),
+    ),
+  },
+  { additionalProperties: false },
+);
+export type DecisionSupersedeRequest = Static<typeof DecisionSupersedeRequestSchema>;
+
+export const DecisionSupersedeResponseSchema = Type.Object(
+  {
+    superseded_decision: DecisionSchema,
+    new_decision: DecisionSchema,
+  },
+  { additionalProperties: false },
+);
+export type DecisionSupersedeResponse = Static<typeof DecisionSupersedeResponseSchema>;
+
 export const DecisionIdParamsSchema = Type.Object(
   { decision_id: UuidSchema },
   { additionalProperties: false },

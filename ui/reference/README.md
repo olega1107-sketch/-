@@ -21,6 +21,8 @@ directly.
   decisions and open questions;
 - decision lookup by ID and a metadata-only provenance view with related memory
   objects, agent runs, exact frozen document versions and audit events;
+- approval requests for `draft`/`proposed` decisions and supersede requests for
+  `approved` decisions, both routed into the existing confirmation inbox;
 - responsive desktop and mobile layouts.
 
 ## Development

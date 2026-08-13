@@ -11,8 +11,9 @@ deployment выделена в отдельный
 
 Pilot-профиль включает рабочий task/agent/result/confirmation flow, registry
 read/search, создание `draft`/`proposed` решений и чтение полной доступной
-provenance-цепочки. `approved` decision и `supersede` намеренно исключены, пока
-для них не реализован отдельный frozen confirmation flow.
+provenance-цепочки. Утверждение, отклонение approval-запроса и замена
+утверждённого решения проходят через одноразовый frozen confirmation flow
+с повторной проверкой прав и payload hash.
 
 ## Валидация
 

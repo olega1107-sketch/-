@@ -8,6 +8,7 @@ const sourceMemoryId = '70000000-0000-4000-8000-000000000001';
 const sourceVersionId = '70000000-0000-4000-8000-000000000002';
 const sourceRunId = '70000000-0000-4000-8000-000000000003';
 const decisions = new Map();
+const confirmationEffects = new Map();
 
 const base = {
   project_id: projectId,
@@ -100,6 +101,31 @@ const server = createServer(async (request, response) => {
     decisions.set(id, decision);
     return json(response, 201, decision);
   }
+  const approvalMatch = url.pathname.match(/^\/api\/v1\/decisions\/([^/]+):approve$/);
+  if (request.method === 'POST' && approvalMatch !== null) {
+    const id = approvalMatch[1];
+    const target = decisions.get(id) ?? sampleDecision(id);
+    decisions.set(id, target);
+    if (target.status === 'approved') return json(response, 200, target);
+    const confirmation = decisionConfirmation('decision_approve', id, `Утвердить решение «${target.title}»`);
+    pending.unshift(confirmation);
+    confirmationEffects.set(confirmation.id, { operation: 'decision_approve', targetId: id });
+    return confirmationRequired(response, confirmation);
+  }
+  const supersedeMatch = url.pathname.match(/^\/api\/v1\/decisions\/([^/]+):supersede$/);
+  if (request.method === 'POST' && supersedeMatch !== null) {
+    const id = supersedeMatch[1];
+    const target = decisions.get(id) ?? { ...sampleDecision(id), status: 'approved' };
+    decisions.set(id, target);
+    if (target.status !== 'approved') {
+      return json(response, 409, { error: { code: 'conflict', message: 'Решение не утверждено.' } });
+    }
+    const input = await jsonBody(request);
+    const confirmation = decisionConfirmation('decision_supersede', id, `Заменить решение «${target.title}»`);
+    pending.unshift(confirmation);
+    confirmationEffects.set(confirmation.id, { operation: 'decision_supersede', targetId: id, input });
+    return confirmationRequired(response, confirmation);
+  }
   const provenanceMatch = url.pathname.match(/^\/api\/v1\/decisions\/([^/]+)\/provenance$/);
   if (request.method === 'GET' && provenanceMatch !== null) {
     const decision = decisions.get(provenanceMatch[1]) ?? sampleDecision(provenanceMatch[1]);
@@ -111,6 +137,7 @@ const server = createServer(async (request, response) => {
     if (confirmation === undefined) return json(response, 404, { error: { code: 'not_found' } });
     const action = decision[2];
     pending.splice(pending.indexOf(confirmation), 1);
+    applyConfirmationEffect(confirmation.id, action);
     return json(response, 200, {
       ...confirmation,
       status: action === 'approve' ? 'consumed' : 'rejected',
@@ -129,6 +156,79 @@ server.listen(port, '127.0.0.1', () => {
 function json(response, status, body) {
   response.statusCode = status;
   response.end(JSON.stringify(body));
+}
+
+function decisionConfirmation(operation, targetId, summary) {
+  return {
+    ...base,
+    id: crypto.randomUUID(),
+    operation,
+    target_type: 'decision',
+    target_id: targetId,
+    request_id: crypto.randomUUID(),
+    payload_hash: `sha256:${crypto.randomUUID().replaceAll('-', '').padEnd(64, '0')}`,
+    summary,
+    created_at: new Date().toISOString(),
+    expires_at: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+}
+
+function confirmationRequired(response, confirmation) {
+  return json(response, 428, {
+    error: {
+      code: 'requires_confirmation',
+      message: 'Операция требует подтверждения.',
+      details: {
+        confirmation_id: confirmation.id,
+        target_type: confirmation.target_type,
+        target_id: confirmation.target_id,
+        payload_hash: confirmation.payload_hash,
+        expires_at: confirmation.expires_at,
+      },
+    },
+  });
+}
+
+function applyConfirmationEffect(confirmationId, action) {
+  const effect = confirmationEffects.get(confirmationId);
+  if (effect === undefined) return;
+  confirmationEffects.delete(confirmationId);
+  const target = decisions.get(effect.targetId);
+  if (target === undefined) return;
+  const decidedAt = new Date().toISOString();
+  if (effect.operation === 'decision_approve') {
+    decisions.set(effect.targetId, {
+      ...target,
+      status: action === 'approve' ? 'approved' : 'rejected',
+      decided_by_user_id: mockUserId,
+      decided_at: decidedAt,
+      updated_at: decidedAt,
+    });
+    return;
+  }
+  if (action !== 'approve') return;
+  const successorId = crypto.randomUUID();
+  decisions.set(effect.targetId, { ...target, status: 'superseded', updated_at: decidedAt });
+  decisions.set(successorId, {
+    id: successorId,
+    memory_object_id: crypto.randomUUID(),
+    project_id: target.project_id,
+    topic_id: target.topic_id,
+    title: effect.input.title,
+    decision_text: effect.input.decision_text,
+    rationale: effect.input.rationale ?? null,
+    status: 'approved',
+    supersedes_decision_id: target.id,
+    decided_by_user_id: mockUserId,
+    decided_at: decidedAt,
+    sensitivity_level: effect.input.sensitivity_level ?? 'internal',
+    created_at: decidedAt,
+    updated_at: decidedAt,
+    relationships: [
+      ...(effect.input.relationships ?? []),
+      { target_type: 'decision', target_id: target.id, relation_type: 'supersedes', description: null },
+    ],
+  });
 }
 
 async function jsonBody(request) {

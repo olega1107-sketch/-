@@ -71,6 +71,14 @@ export interface DecisionCreateInput {
   relationships: RelationshipInput[];
 }
 
+export interface DecisionSupersedeInput {
+  title: string;
+  decision_text: string;
+  rationale?: string | null;
+  sensitivity_level: SensitivityLevel;
+  relationships: RelationshipInput[];
+}
+
 export interface Decision {
   id: string;
   memory_object_id: string;
@@ -86,6 +94,11 @@ export interface Decision {
   sensitivity_level: SensitivityLevel;
   created_at: string;
   updated_at: string;
+}
+
+export interface DecisionSupersedeResponse {
+  superseded_decision: Decision;
+  new_decision: Decision;
 }
 
 export interface DecisionProvenance {
@@ -163,7 +176,7 @@ interface SessionResponse {
 }
 
 interface ErrorResponse {
-  error?: { code?: string; message?: string };
+  error?: { code?: string; message?: string; details?: Record<string, unknown> };
 }
 
 const apiBase = (import.meta.env.VITE_DIRECTOR_API_BASE as string | undefined) ?? '/api/v1';
@@ -178,6 +191,7 @@ export class ApiError extends Error {
     readonly status: number,
     readonly code: string,
     message: string,
+    readonly details: Readonly<Record<string, unknown>> = {},
   ) {
     super(message);
     this.name = 'ApiError';
@@ -241,6 +255,22 @@ export function getDecisionProvenance(decisionId: string): Promise<DecisionProve
   return apiRequest(`/decisions/${encodeURIComponent(decisionId)}/provenance`);
 }
 
+export function requestDecisionApproval(decisionId: string): Promise<Decision> {
+  return apiRequest(`/decisions/${encodeURIComponent(decisionId)}:approve`, {
+    method: 'POST',
+  });
+}
+
+export function supersedeDecision(
+  decisionId: string,
+  input: DecisionSupersedeInput,
+): Promise<DecisionSupersedeResponse> {
+  return apiRequest(`/decisions/${encodeURIComponent(decisionId)}:supersede`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 async function apiRequest<T>(
   path: string,
   options: RequestInit & { authenticated?: boolean } = {},
@@ -276,6 +306,7 @@ async function apiRequest<T>(
     response.status,
     payload.error?.code ?? 'request_failed',
     payload.error?.message ?? `Director API вернул ${response.status}.`,
+    payload.error?.details ?? {},
   );
 }
 

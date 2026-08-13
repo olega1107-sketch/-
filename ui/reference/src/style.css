@@ -128,6 +128,7 @@ dd { margin: 3px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospac
 .decision-summary { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 34%); gap: 28px; padding: 22px 0 28px; border-bottom: 1px solid var(--line); }
 .decision-summary-copy h2 { margin: 0; font-size: 22px; line-height: 1.3; overflow-wrap: anywhere; }
 .decision-summary-copy > p { margin: 13px 0 0; font-size: 15px; line-height: 1.62; white-space: pre-wrap; overflow-wrap: anywhere; }
+.decision-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
 .sensitivity-label { color: var(--muted); font-size: 11px; font-weight: 650; }
 .status-badge.decision-draft { color: var(--muted); background: #ecefed; }
 .status-badge.decision-proposed { color: var(--blue); background: #e8f0f6; }

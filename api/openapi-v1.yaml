@@ -1008,15 +1008,7 @@ paths:
       summary: Создать решение
       operationId: createDecision
       x-permissions: [project.read, decision.create]
-      x-conditional-permissions:
-        approved_status: decision.approve
-      x-confirmation-policy:
-        approved_status: required
       x-audit-events: [decision.created]
-      x-conditional-audit-events:
-        approved_status:
-          - confirmation.created
-          - decision.approved
       requestBody:
         required: true
         content:
@@ -1043,8 +1035,6 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
-        '428':
-          $ref: '#/components/responses/RequiresConfirmation'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1119,6 +1109,45 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /decisions/{decision_id}:approve:
+    parameters:
+      - $ref: '#/components/parameters/RequestIdHeader'
+      - $ref: '#/components/parameters/DecisionIdPath'
+    post:
+      tags: [Decisions]
+      summary: Запросить утверждение draft/proposed решения
+      operationId: requestDecisionApproval
+      x-permissions:
+        - decision.read
+        - decision.approve
+        - memory_object.read
+      x-confirmation: always
+      x-audit-events:
+        - confirmation.created
+        - decision.approved
+      responses:
+        '200':
+          description: Решение уже утверждено или replay confirmation завершён
+          headers:
+            X-Request-Id:
+              $ref: '#/components/headers/RequestId'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Decision'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/RequiresConfirmation'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -1643,7 +1672,7 @@ components:
       enum: [draft, proposed, approved, rejected, superseded]
     DecisionCreateStatus:
       type: string
-      enum: [draft, proposed, approved]
+      enum: [draft, proposed]
       default: draft
     ConfirmationStatus:
       type: string
@@ -2319,6 +2348,8 @@ components:
         relationships:
           type: array
           default: []
+          maxItems: 100
+          uniqueItems: true
           items:
             $ref: '#/components/schemas/RelationshipRef'
 
@@ -2648,6 +2679,8 @@ components:
         relationships:
           type: array
           default: []
+          maxItems: 100
+          uniqueItems: true
           items:
             $ref: '#/components/schemas/RelationshipRef'
     DecisionSupersedeResponse:

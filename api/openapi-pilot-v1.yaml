@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Дирижёр Pilot API
-  version: 1.0.0-pilot.1
+  version: 1.0.0-pilot.2
   description: |
     Исполнимый профиль публичного API reference deployment. Только операции из
     этого документа считаются доступными в пилоте. Полный openapi-v1.yaml
@@ -17,9 +17,9 @@ x-dirizhor-profile:
   maturity: pilot
   base-contract: ./openapi-v1.yaml
   decision-create-statuses: [draft, proposed]
-  confirmation-required-but-not-implemented:
-    - approved decision creation
-    - decision supersede
+  decision-confirmation-operations:
+    - requestDecisionApproval
+    - supersedeDecision
   conditional-operations:
     session-authentication:
       - createUserSession
@@ -35,7 +35,6 @@ x-dirizhor-profile:
     - createProjectTopic
     - createMemoryObject
     - createDocumentVersion
-    - supersedeDecision
     - listAuditEvents
 paths:
   /auth/sessions:
@@ -113,6 +112,10 @@ paths:
     $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}'
   /decisions/{decision_id}/provenance:
     $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}~1provenance'
+  /decisions/{decision_id}:approve:
+    $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}:approve'
+  /decisions/{decision_id}:supersede:
+    $ref: './openapi-v1.yaml#/paths/~1decisions~1{decision_id}:supersede'
   /confirmations:
     $ref: './openapi-v1.yaml#/paths/~1confirmations'
   /confirmations/{confirmation_id}:

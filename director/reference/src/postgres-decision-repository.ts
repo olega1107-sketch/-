@@ -8,10 +8,20 @@ import {
   insertAllowedAccessAudit,
   insertAllowAuthorizationDecision,
 } from './authorization-decision.js';
+import {
+  buildDecisionConfirmationPayload,
+  computeDecisionConfirmationPayloadHash,
+  validatedDecisionConfirmationPayload,
+  type DecisionConfirmationPayload,
+} from './decision-confirmation-payload.js';
 import type {
   CreateDecisionCommand,
   DecisionRepository,
   NormalizedDecisionCreate,
+  PrepareDecisionApprovalCommand,
+  PreparedDecisionApproval,
+  PrepareDecisionSupersedeCommand,
+  PreparedDecisionSupersede,
 } from './decision-ports.js';
 import type {
   Decision,
@@ -23,6 +33,7 @@ import type {
   DecisionSourceVersion,
   DecisionStatus,
 } from './decision-protocol.js';
+import { confirmationFromRow, confirmationSelect, type ConfirmationRow } from './confirmation-record.js';
 import { DirectorProtocolError } from './errors.js';
 import type { MemoryObjectType } from './public-protocol.js';
 import type {
@@ -34,6 +45,13 @@ import type { AgentRunStatus } from './task-protocol.js';
 
 const createPermissions = ['project.read', 'decision.create'] as const;
 const readPermissions = ['project.read', 'decision.read', 'memory_object.read'] as const;
+const approvePermissions = [
+  'project.read',
+  'decision.read',
+  'decision.approve',
+  'memory_object.read',
+] as const;
+const supersedePermissions = [...approvePermissions, 'decision.create', 'decision.supersede'] as const;
 
 interface StatusRow {
   status: string;
@@ -129,6 +147,20 @@ interface AuditRow {
   createdAt: Date | string;
 }
 
+interface DecisionConfirmationInsert {
+  operation: 'decision_approve' | 'decision_supersede';
+  action: 'decision.approve' | 'decision.supersede';
+  reasonCode: string;
+  obligation: string;
+  targetDecisionId: string;
+  projectId: string;
+  requestedByUserId: string;
+  requestId: string;
+  payload: DecisionConfirmationPayload;
+  summary: string;
+  expiresAt: string;
+}
+
 export class PostgresDecisionRepository implements DecisionRepository {
   constructor(private readonly database: SqlDatabase) {}
 
@@ -202,6 +234,236 @@ export class PostgresDecisionRepository implements DecisionRepository {
       }
       throw conflict('Decision creation conflicts with an existing resource.');
     }
+  }
+
+  async prepareDecisionApproval(
+    command: PrepareDecisionApprovalCommand,
+  ): Promise<PreparedDecisionApproval> {
+    return this.database.transaction(async (transaction) => {
+      await this.requireActiveUser(transaction, command.userId, true);
+      const row = await this.loadDecisionRow(transaction, command.decisionId, true);
+      if (row === undefined) {
+        throw notFound('decision', command.decisionId);
+      }
+      const permissions = await this.projectPermissions(
+        transaction,
+        command.userId,
+        row.projectId,
+        true,
+        false,
+      );
+      this.requirePermissions(permissions, approvePermissions, {
+        concealedPermission: 'project.read',
+        concealedResource: ['decision', command.decisionId],
+      });
+      this.requireSensitivityPermission(permissions, row.sensitivityLevel);
+      const decision = decisionFromRow(row);
+      const relationships = await this.loadOutgoingRelationships(transaction, command.decisionId);
+      const references = relationships.map(referenceFromRow);
+      const replay = await this.loadConfirmationByRequest(
+        transaction,
+        command.requestId,
+        'decision_approve',
+        command.decisionId,
+        command.userId,
+      );
+      if (replay !== undefined) {
+        if (!this.confirmationMatchesDecision(replay, decision, references)) {
+          throw conflict('Decision approval request conflicts with its frozen payload.');
+        }
+        if (replay.status === 'pending') {
+          return { outcome: 'requires_confirmation', confirmation: confirmationFromRow(replay) };
+        }
+        if (replay.status === 'consumed' && decision.status === 'approved') {
+          await this.insertDecisionOperationReplayAudit(
+            transaction,
+            command.userId,
+            command.requestId,
+            decision,
+            'decision.approve',
+          );
+          return { outcome: 'approved', decision };
+        }
+        throw conflict(`Decision approval confirmation is already ${replay.status}.`);
+      }
+      if (decision.status === 'approved') {
+        await this.insertDecisionOperationReplayAudit(
+          transaction,
+          command.userId,
+          command.requestId,
+          decision,
+          'decision.approve',
+        );
+        return { outcome: 'approved', decision };
+      }
+      if (decision.status !== 'draft' && decision.status !== 'proposed') {
+        throw conflict(`Decision is already ${decision.status}.`);
+      }
+      const pending = await this.loadPendingDecisionConfirmation(
+        transaction,
+        'decision_approve',
+        command.decisionId,
+      );
+      if (pending !== undefined) {
+        throw conflict('A decision approval confirmation is already pending.');
+      }
+      await this.validateReferences(
+        transaction,
+        permissions,
+        decision.project_id,
+        decision.topic_id,
+        references,
+        true,
+      );
+      const payload = buildDecisionConfirmationPayload({
+        operation: 'decision_approve',
+        requestedByUserId: command.userId,
+        targetDecisionId: decision.id,
+        decision: frozenDecision(decision, references),
+      });
+      const confirmation = await this.insertDecisionConfirmation(transaction, {
+        operation: 'decision_approve',
+        action: 'decision.approve',
+        reasonCode: 'decision_approval_confirmation',
+        obligation: 'confirm_decision_approval',
+        targetDecisionId: decision.id,
+        projectId: decision.project_id,
+        requestedByUserId: command.userId,
+        requestId: command.requestId,
+        payload,
+        summary: `Approve decision "${decision.title}".`,
+        expiresAt: command.confirmationExpiresAt,
+      });
+      return { outcome: 'requires_confirmation', confirmation: confirmationFromRow(confirmation) };
+    });
+  }
+
+  async prepareDecisionSupersede(
+    command: PrepareDecisionSupersedeCommand,
+  ): Promise<PreparedDecisionSupersede> {
+    return this.database.transaction(async (transaction) => {
+      await this.requireActiveUser(transaction, command.userId, true);
+      const priorRow = await this.loadDecisionRow(transaction, command.decisionId, true);
+      if (priorRow === undefined) {
+        throw notFound('decision', command.decisionId);
+      }
+      const permissions = await this.projectPermissions(
+        transaction,
+        command.userId,
+        priorRow.projectId,
+        true,
+        false,
+      );
+      this.requirePermissions(permissions, supersedePermissions, {
+        concealedPermission: 'project.read',
+        concealedResource: ['decision', command.decisionId],
+      });
+      this.requireSensitivityPermission(permissions, priorRow.sensitivityLevel);
+      this.requireSensitivityPermission(permissions, command.input.sensitivity_level);
+      const replay = await this.loadConfirmationByRequest(
+        transaction,
+        command.requestId,
+        'decision_supersede',
+        command.decisionId,
+        command.userId,
+      );
+      if (replay !== undefined) {
+        const payload = this.validSupersedeReplayPayload(replay, command);
+        if (payload === undefined) {
+          throw conflict('Decision supersede request conflicts with its frozen payload.');
+        }
+        if (replay.status === 'pending') {
+          return { outcome: 'requires_confirmation', confirmation: confirmationFromRow(replay) };
+        }
+        if (replay.status === 'consumed') {
+          const prior = await this.loadDecision(transaction, command.decisionId);
+          const successor = await this.loadDecision(transaction, payload.decision.id);
+          if (prior.status !== 'superseded' || successor.status !== 'approved') {
+            throw conflict('Consumed supersede confirmation has no effective successor.');
+          }
+          await this.insertDecisionOperationReplayAudit(
+            transaction,
+            command.userId,
+            command.requestId,
+            prior,
+            'decision.supersede',
+          );
+          return {
+            outcome: 'superseded',
+            result: { superseded_decision: prior, new_decision: successor },
+          };
+        }
+        throw conflict(`Decision supersede confirmation is already ${replay.status}.`);
+      }
+      const prior = decisionFromRow(priorRow);
+      if (prior.status !== 'approved') {
+        throw conflict('Only an approved decision can be superseded.');
+      }
+      if (
+        command.input.relationships.some(
+          (relationship) =>
+            relationship.target_type === 'decision' &&
+            relationship.target_id === prior.id &&
+            relationship.relation_type === 'supersedes',
+        )
+      ) {
+        throw conflict('The supersedes relationship is added by the Director.');
+      }
+      const pending = await this.loadPendingDecisionConfirmation(
+        transaction,
+        'decision_supersede',
+        command.decisionId,
+      );
+      if (pending !== undefined) {
+        throw conflict('A decision supersede confirmation is already pending.');
+      }
+      await this.validateReferences(
+        transaction,
+        permissions,
+        prior.project_id,
+        prior.topic_id,
+        command.input.relationships,
+        true,
+      );
+      const payload = buildDecisionConfirmationPayload({
+        operation: 'decision_supersede',
+        requestedByUserId: command.userId,
+        targetDecisionId: prior.id,
+        decision: {
+          id: command.newDecisionId,
+          memory_object_id: command.newMemoryObjectId,
+          project_id: prior.project_id,
+          topic_id: prior.topic_id,
+          title: command.input.title,
+          decision_text: command.input.decision_text,
+          rationale: command.input.rationale,
+          sensitivity_level: command.input.sensitivity_level,
+          relationships: [
+            ...command.input.relationships,
+            {
+              target_type: 'decision',
+              target_id: prior.id,
+              relation_type: 'supersedes',
+              description: null,
+            },
+          ],
+        },
+      });
+      const confirmation = await this.insertDecisionConfirmation(transaction, {
+        operation: 'decision_supersede',
+        action: 'decision.supersede',
+        reasonCode: 'decision_supersede_confirmation',
+        obligation: 'confirm_decision_supersede',
+        targetDecisionId: prior.id,
+        projectId: prior.project_id,
+        requestedByUserId: command.userId,
+        requestId: command.requestId,
+        payload,
+        summary: `Replace approved decision "${prior.title}" with "${command.input.title}".`,
+        expiresAt: command.confirmationExpiresAt,
+      });
+      return { outcome: 'requires_confirmation', confirmation: confirmationFromRow(confirmation) };
+    });
   }
 
   async getDecision(userId: string, requestId: string, decisionId: string): Promise<Decision> {
@@ -741,6 +1003,18 @@ export class PostgresDecisionRepository implements DecisionRepository {
     transaction: SqlQueryable,
     decisionId: string,
   ): Promise<Decision> {
+    const row = await this.loadDecisionRow(transaction, decisionId, false);
+    if (row === undefined) {
+      throw notFound('decision', decisionId);
+    }
+    return decisionFromRow(row);
+  }
+
+  private async loadDecisionRow(
+    transaction: SqlQueryable,
+    decisionId: string,
+    lock: boolean,
+  ): Promise<DecisionRow | undefined> {
     const result = await transaction.query<DecisionRow>(
       `
         SELECT
@@ -763,14 +1037,224 @@ export class PostgresDecisionRepository implements DecisionRepository {
           ON memory.id = decision.memory_object_id
          AND memory.project_id = decision.project_id
         WHERE decision.id = $1::uuid
+        ${lock ? 'FOR UPDATE OF decision' : ''}
       `,
       [decisionId],
     );
-    const row = result.rows[0];
-    if (row === undefined) {
-      throw notFound('decision', decisionId);
+    return result.rows[0];
+  }
+
+  private async loadConfirmationByRequest(
+    transaction: SqlQueryable,
+    requestId: string,
+    operation: 'decision_approve' | 'decision_supersede',
+    targetDecisionId: string,
+    requestedByUserId: string,
+  ): Promise<ConfirmationRow | undefined> {
+    const result = await transaction.query<ConfirmationRow>(
+      `${confirmationSelect}
+       WHERE confirmation.request_id = $1::uuid
+         AND confirmation.operation = $2
+         AND confirmation.target_type = 'decision'
+         AND confirmation.target_id = $3::uuid
+         AND confirmation.requested_by_user_id = $4::uuid
+       ORDER BY confirmation.created_at, confirmation.id
+       LIMIT 1`,
+      [requestId, operation, targetDecisionId, requestedByUserId],
+    );
+    return result.rows[0];
+  }
+
+  private async loadPendingDecisionConfirmation(
+    transaction: SqlQueryable,
+    operation: 'decision_approve' | 'decision_supersede',
+    targetDecisionId: string,
+  ): Promise<ConfirmationRow | undefined> {
+    const result = await transaction.query<ConfirmationRow>(
+      `${confirmationSelect}
+       WHERE confirmation.operation = $1
+         AND confirmation.target_type = 'decision'
+         AND confirmation.target_id = $2::uuid
+         AND confirmation.status = 'pending'
+       ORDER BY confirmation.created_at, confirmation.id
+       LIMIT 1
+       FOR UPDATE OF confirmation`,
+      [operation, targetDecisionId],
+    );
+    return result.rows[0];
+  }
+
+  private confirmationMatchesDecision(
+    confirmation: ConfirmationRow,
+    decision: Decision,
+    relationships: readonly RelationshipRef[],
+  ): boolean {
+    const payload = validatedDecisionConfirmationPayload(confirmation.frozenPayload);
+    if (
+      payload === undefined ||
+      payload.operation !== 'decision_approve' ||
+      payload.target_decision_id !== decision.id ||
+      payload.requested_by_user_id !== confirmation.requestedByUserId ||
+      computeDecisionConfirmationPayloadHash(payload) !== confirmation.payloadHash
+    ) {
+      return false;
     }
-    return decisionFromRow(row);
+    const current = buildDecisionConfirmationPayload({
+      operation: 'decision_approve',
+      requestedByUserId: confirmation.requestedByUserId,
+      targetDecisionId: decision.id,
+      decision: frozenDecision(decision, relationships),
+    });
+    return computeDecisionConfirmationPayloadHash(current) === confirmation.payloadHash;
+  }
+
+  private validSupersedeReplayPayload(
+    confirmation: ConfirmationRow,
+    command: PrepareDecisionSupersedeCommand,
+  ): DecisionConfirmationPayload | undefined {
+    const payload = validatedDecisionConfirmationPayload(confirmation.frozenPayload);
+    if (
+      payload === undefined ||
+      payload.operation !== 'decision_supersede' ||
+      payload.target_decision_id !== command.decisionId ||
+      payload.requested_by_user_id !== command.userId ||
+      computeDecisionConfirmationPayloadHash(payload) !== confirmation.payloadHash ||
+      !supersedePayloadMatchesInput(payload, command)
+    ) {
+      return undefined;
+    }
+    return payload;
+  }
+
+  private async insertDecisionConfirmation(
+    transaction: SqlQueryable,
+    input: DecisionConfirmationInsert,
+  ): Promise<ConfirmationRow> {
+    const payloadHash = computeDecisionConfirmationPayloadHash(input.payload);
+    const decision = await transaction.query<{ id: string }>(
+      `
+        INSERT INTO dirizhor.authorization_decisions (
+          principal_type, principal_id, action, resource_type, resource_id,
+          project_id, decision, reason_codes, obligations, request_id
+        )
+        VALUES (
+          'user', $1::uuid, $2, 'decision', $3::uuid, $4::uuid,
+          'require_confirmation', ARRAY[$5]::text[], $6::jsonb, $7::uuid
+        )
+        RETURNING id::text AS id
+      `,
+      [
+        input.requestedByUserId,
+        input.action,
+        input.targetDecisionId,
+        input.projectId,
+        input.reasonCode,
+        JSON.stringify([input.obligation, `bind_payload:${payloadHash}`]),
+        input.requestId,
+      ],
+    );
+    const authorizationDecisionId = decision.rows[0]?.id;
+    if (authorizationDecisionId === undefined) {
+      throw new Error('Decision confirmation authorization could not be created.');
+    }
+    const inserted = await transaction.query<{ id: string }>(
+      `
+        INSERT INTO dirizhor.confirmations (
+          operation, target_type, target_id, project_id, requested_by_user_id,
+          authorization_decision_id, request_id, frozen_payload, payload_hash,
+          summary, expires_at
+        )
+        VALUES (
+          $1, 'decision', $2::uuid, $3::uuid, $4::uuid, $5::uuid,
+          $6::uuid, $7::jsonb, $8, $9, $10::timestamptz
+        )
+        RETURNING id::text AS id
+      `,
+      [
+        input.operation,
+        input.targetDecisionId,
+        input.projectId,
+        input.requestedByUserId,
+        authorizationDecisionId,
+        input.requestId,
+        JSON.stringify(input.payload),
+        payloadHash,
+        input.summary,
+        input.expiresAt,
+      ],
+    );
+    const confirmationId = inserted.rows[0]?.id;
+    if (confirmationId === undefined) {
+      throw new Error('Decision confirmation could not be created.');
+    }
+    await transaction.query(
+      `
+        INSERT INTO dirizhor.audit_events (
+          actor_type, actor_id, action, target_type, target_id,
+          project_id, metadata, request_id, authorization_decision_id
+        )
+        VALUES (
+          'user', $1::uuid, 'confirmation.created', 'confirmation', $2::uuid,
+          $3::uuid, $4::jsonb, $5::uuid, $6::uuid
+        )
+      `,
+      [
+        input.requestedByUserId,
+        confirmationId,
+        input.projectId,
+        JSON.stringify({
+          operation: input.operation,
+          target_type: 'decision',
+          target_id: input.targetDecisionId,
+          payload_hash: payloadHash,
+        }),
+        input.requestId,
+        authorizationDecisionId,
+      ],
+    );
+    const confirmation = await this.loadConfirmationById(transaction, confirmationId);
+    if (confirmation === undefined) {
+      throw new Error('Decision confirmation could not be loaded.');
+    }
+    return confirmation;
+  }
+
+  private async insertDecisionOperationReplayAudit(
+    transaction: SqlQueryable,
+    userId: string,
+    requestId: string,
+    decision: Decision,
+    action: 'decision.approve' | 'decision.supersede',
+  ): Promise<void> {
+    const authorizationDecisionId = await insertAllowAuthorizationDecision(transaction, {
+      principalUserId: userId,
+      action,
+      resourceType: 'decision',
+      resourceId: decision.id,
+      projectId: decision.project_id,
+      requestId,
+    });
+    await insertAllowedAccessAudit(transaction, {
+      actorUserId: userId,
+      authorizedAction: action,
+      resourceType: 'decision',
+      resourceId: decision.id,
+      projectId: decision.project_id,
+      requestId,
+      authorizationDecisionId,
+      metadata: { replay: true, status: decision.status },
+    });
+  }
+
+  private async loadConfirmationById(
+    transaction: SqlQueryable,
+    confirmationId: string,
+  ): Promise<ConfirmationRow | undefined> {
+    const result = await transaction.query<ConfirmationRow>(
+      `${confirmationSelect} WHERE confirmation.id = $1::uuid`,
+      [confirmationId],
+    );
+    return result.rows[0];
   }
 
   private async loadOutgoingRelationships(
@@ -1076,6 +1560,32 @@ function relationshipFromRow(row: RelationshipRow): DecisionRelationship {
   };
 }
 
+function referenceFromRow(row: RelationshipRow): RelationshipRef {
+  return {
+    target_type: row.targetType,
+    target_id: row.targetId,
+    relation_type: row.relationType,
+    description: row.description,
+  };
+}
+
+function frozenDecision(
+  decision: Decision,
+  relationships: readonly RelationshipRef[],
+): DecisionConfirmationPayload['decision'] {
+  return {
+    id: decision.id,
+    memory_object_id: decision.memory_object_id,
+    project_id: decision.project_id,
+    topic_id: decision.topic_id,
+    title: decision.title,
+    decision_text: decision.decision_text,
+    rationale: decision.rationale,
+    sensitivity_level: decision.sensitivity_level,
+    relationships: [...relationships],
+  };
+}
+
 function relatedMemoryFromRow(row: MemoryTargetRow): DecisionRelatedMemoryObject {
   return {
     id: row.id,
@@ -1174,6 +1684,38 @@ function referenceKey(relationship: RelationshipRef): string {
     relationship.relation_type,
     relationship.description ?? null,
   ]);
+}
+
+function supersedePayloadMatchesInput(
+  payload: DecisionConfirmationPayload,
+  command: PrepareDecisionSupersedeCommand,
+): boolean {
+  const expected = buildDecisionConfirmationPayload({
+    operation: 'decision_supersede',
+    requestedByUserId: command.userId,
+    targetDecisionId: command.decisionId,
+    decision: {
+      id: payload.decision.id,
+      memory_object_id: payload.decision.memory_object_id,
+      project_id: payload.decision.project_id,
+      topic_id: payload.decision.topic_id,
+      title: command.input.title,
+      decision_text: command.input.decision_text,
+      rationale: command.input.rationale,
+      sensitivity_level: command.input.sensitivity_level,
+      relationships: [
+        ...command.input.relationships,
+        {
+          target_type: 'decision',
+          target_id: command.decisionId,
+          relation_type: 'supersedes',
+          description: null,
+        },
+      ],
+    },
+  });
+  return computeDecisionConfirmationPayloadHash(expected) ===
+    computeDecisionConfirmationPayloadHash(payload);
 }
 
 function relationshipTable(targetType: 'task' | 'agent_run'): string {

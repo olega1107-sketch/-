@@ -88,6 +88,14 @@ AI-результат, human decision/provenance, confirmation flow и внут�
   RBAC, а `/provenance` fail-closed восстанавливает связи, связанные карточки,
   agent runs, точные frozen `document_version_id`/hash и metadata-only audit без
   document body, prompt или AI response;
+- `POST /api/v1/decisions/{decision_id}:approve` замораживает точную
+  draft/proposed-формулировку и связи; approve повторно проверяет
+  requester/approver RBAC, sensitivity и payload hash, а reject атомарно
+  делает предложение terminal `rejected`;
+- `POST /api/v1/decisions/{decision_id}:supersede` хранит новое решение
+  только во frozen confirmation payload; после approve одна транзакция
+  создаёт approved successor, связь `supersedes`, переводит прежнее
+  решение в `superseded` и пишет lifecycle audit;
 - reject, expiry и stale payload применяют operation-specific termination:
   context share отменяет waiting run/task, result save оставляет task в review;
 - атомарное создание frozen run, contexts, capability/resources,

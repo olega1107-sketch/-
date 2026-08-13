@@ -675,7 +675,7 @@ POST /api/v1/decisions
   "title": "Использовать Дирижёра как единую точку доступа",
   "decision_text": "AI-агенты не получают прямой доступ к корпоративной памяти.",
   "rationale": "Это сохраняет контроль доступа, журналирование и независимость памяти.",
-  "status": "approved",
+  "status": "proposed",
   "relationships": [
     {
       "target_type": "memory_object",
@@ -689,13 +689,31 @@ POST /api/v1/decisions
 
 Правило:
 
-- `approved`-решение может создать только пользователь с соответствующим правом;
-- AI-агент не может создать `approved`-решение от своего имени.
+- endpoint создаёт только `draft` или `proposed`;
+- AI-агент не может создать решение от имени пользователя;
+- переход в `approved` выполняется только через отдельный confirmation.
 
 Audit:
 
 - `decision.created`;
-- `decision.approved`, если статус сразу `approved`.
+
+### Запросить утверждение
+
+```text
+POST /api/v1/decisions/{decision_id}:approve
+```
+
+Первый запрос возвращает `428 requires_confirmation`. Director замораживает
+формулировку, связи, sensitivity, requester и target в недоступном
+клиенту `frozen_payload`. Approve повторно проверяет права requester и
+approver, текущую sensitivity и payload hash. Reject переводит решение
+в terminal `rejected`.
+
+Audit после approve:
+
+- `confirmation.approved`;
+- `decision.approved`;
+- `confirmation.consumed`.
 
 ### Получить решение
 
@@ -722,9 +740,11 @@ POST /api/v1/decisions/{decision_id}:supersede
 
 Результат:
 
+- первый запрос возвращает `428 requires_confirmation`;
+- до approve новый decision и memory object в реестре не создаются;
 - старое решение получает статус `superseded`;
-- новое решение создается со связью `supersedes`;
-- оба действия журналируются.
+- новое approved-решение создается со связью `supersedes`;
+- весь переход и lifecycle audit коммитятся одной SQL-транзакцией.
 
 ## Audit
 

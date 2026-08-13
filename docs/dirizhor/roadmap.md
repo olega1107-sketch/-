@@ -105,10 +105,10 @@ preflight, stdin-only provisioning, local-first RP logout и audited revoke-all
 `require_confirmation` decisions со связанным
 success/access audit реализованы для всех текущих public business endpoints.
 Pilot API вынесен в отдельный machine-readable OpenAPI-профиль. Public Director
-создаёт только `draft`/`proposed` решения и возвращает их полное provenance
-без выдачи тела документа, prompt или AI-response в audit. Переходы в
-`approved`/`rejected` и supersede не входят в pilot-контракт до фиксации
-отдельного потока человеческого подтверждения.
+создаёт `draft`/`proposed` решения, возвращает их полное provenance и
+проводит `approved`/`rejected`/`superseded` переходы через frozen confirmation
+с повторной проверкой requester/approver RBAC, sensitivity и payload hash. Document
+body, prompt и AI-response в audit не выдаются.
 Reference deployment/reverse-proxy профиль, trusted-proxy boundary, mounted
 secret files, dependency readiness, certificate preflight и ephemeral two-way
 mTLS smoke реализованы.

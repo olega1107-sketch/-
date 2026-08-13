@@ -132,7 +132,8 @@
                 <p class="eyebrow">История решений</p>
                 <h1>Решения</h1>
               </div>
-              <button class="button primary" id="new-decision-button" type="button">
+              <button class="button primary" id="new-decision-button" type="button"
+                aria-label="Новое решение" title="Новое решение">
                 <i data-lucide="plus"></i><span>Новое решение</span>
               </button>
             </div>
@@ -183,8 +184,8 @@
       <dialog class="decision-dialog create-decision-dialog" id="create-decision-dialog">
         <form id="create-decision-form">
           <div class="dialog-copy create-dialog-heading">
-            <p class="eyebrow">Human decision</p>
-            <h2>Новое решение</h2>
+            <p class="eyebrow" id="decision-form-eyebrow">Human decision</p>
+            <h2 id="decision-form-title">Новое решение</h2>
           </div>
           <button class="icon-button dialog-close" id="create-dialog-close" type="button" aria-label="Закрыть" title="Закрыть">
             <i data-lucide="x"></i>
@@ -203,7 +204,7 @@
               <span>Обоснование</span>
               <textarea name="rationale" maxlength="6000" rows="3"></textarea>
             </label>
-            <fieldset class="field status-segment">
+            <fieldset class="field status-segment" id="decision-status-field">
               <legend>Статус</legend>
               <label><input type="radio" name="status" value="draft" checked /><span>Черновик</span></label>
               <label><input type="radio" name="status" value="proposed" /><span>Предложено</span></label>
@@ -229,8 +230,8 @@
           <p class="form-error" id="create-decision-error" role="alert" hidden></p>
           <div class="dialog-actions">
             <button class="button secondary" id="create-dialog-cancel" type="button">Отмена</button>
-            <button class="button primary" type="submit">
-              <i data-lucide="file-check-2"></i><span>Создать решение</span>
+            <button class="button primary" id="decision-form-submit" type="submit">
+              <i data-lucide="file-check-2"></i><span id="decision-form-submit-label">Создать решение</span>
             </button>
           </div>
         </form>

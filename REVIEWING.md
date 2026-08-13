@@ -94,6 +94,13 @@ opaque ID в
 Генератор принимает только полностью неназначенный plan, назначает все дорожки
 одновременно и создаёт новый защищённый файл без перезаписи существующего.
 
+Полученный `RESPONSE.md` не редактирует gate напрямую. Исходный файл сохраняется
+в protected evidence storage, хэшируется и нормализуется через строгий reviewer
+result contract по
+[процедуре](deploy/reference/architecture-review-runbook.md). Intake сверяет
+reviewer с назначением, требует все его дорожки, exact baseline и не позволяет
+пометить `COMPLETE` дорожку с открытым `blocking`/`major` замечанием.
+
 ## Безопасная выдача доступа
 
 Коллегам выдаётся read-only доступ к exact Git commit или tag. Доступ к

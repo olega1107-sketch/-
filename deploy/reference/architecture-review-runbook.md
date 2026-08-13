@@ -54,6 +54,30 @@ evidence содержимое в пакет не переносятся.
 `assignments_complete=true` не является одобрением: завершение фиксирует только
 основной architecture-review gate.
 
+## Приём результатов
+
+Ответ reviewer в Markdown сохраняется в protected evidence storage и получает
+SHA-256. Его выводы нормализуются в копию
+[`reviewer-result-template-v1.json`](reviewer-result-template-v1.json): exact
+review/commit, reviewer ID, timestamp, hash исходного файла и полный набор всех
+назначенных этому reviewer дорожек. Затем результаты применяются к новому review
+JSON без перезаписи исходного:
+
+```bash
+node scripts/reviewer-results.mjs \
+  /secure/review/ARCH-2026-001/architecture-review-assigned.json \
+  /secure/review/ARCH-2026-001/architecture-review-progress-01.json \
+  /secure/review/ARCH-2026-001/owner-result.json \
+  /secure/review/ARCH-2026-001/product-result.json
+```
+
+Intake требует все дорожки назначенного reviewer сразу, проверяет exact baseline,
+`source_sha256`, reviewer/track ownership и ссылки на открытые findings. Результат
+`BLOCKED` оставляет дорожку `IN_REVIEW`; только `COMPLETE` добавляет timestamp и
+completion evidence. Дорожку с открытым `blocking` или `major` замечанием
+завершить нельзя. Повторное, частичное или чужое назначение отклоняется, output
+создаётся с mode `0600` и не перезаписывается.
+
 Запуск из корня репозитория:
 
 ```bash

@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "review_id": "replace-review-id",
+  "baseline_commit": "replace-full-baseline-commit",
+  "reviewer": "replace-reviewer",
+  "submitted_at": "replace-iso-8601-timestamp",
+  "source_sha256": "sha256:replace-source-file-sha256",
+  "tracks": [
+    {
+      "id": "replace-track",
+      "status": "BLOCKED",
+      "evidence_ref": "ticket:replace-reference",
+      "confirmed_finding_ids": [],
+      "conclusion": "replace-conclusion"
+    }
+  ]
+}

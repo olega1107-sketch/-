@@ -61,6 +61,9 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/reviewer-assignments.mjs` и `reviewer-assignments-template-v1.json`
   — проверяемое назначение decision owner, независимого final reviewer и всех
   шести ролевых reviewers без ручной правки основного review JSON;
+- `scripts/reviewer-results.mjs` и `reviewer-result-template-v1.json` — строгий
+  приём хэшированных ответов, exact-baseline/assignment validation и создание
+  нового progress review без ручного изменения статусов;
 - `scripts/architecture-review.mjs`, review template и
   `architecture-review-runbook.md` — проверяемый gate шести ролевых дорожек,
   замечаний и независимого финального решения по exact Git baseline;
@@ -224,6 +227,7 @@ node --test test/application-canary.test.mjs
 node --test test/application-failure-canary.test.mjs
 node --test test/review-package-preflight.test.mjs
 node --test test/reviewer-assignments.test.mjs
+node --test test/reviewer-results.test.mjs
 node --test test/reviewer-handoff.test.mjs
 ```
 

@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "decision_owner": "replace-decision-owner",
+  "final_reviewer": "replace-independent-final-reviewer",
+  "tracks": {
+    "product_domain": "replace-product-domain-reviewer",
+    "application_api": "replace-application-api-reviewer",
+    "security": "replace-security-reviewer",
+    "data": "replace-data-reviewer",
+    "platform_sre": "replace-platform-sre-reviewer",
+    "engineering": "replace-engineering-reviewer"
+  }
+}

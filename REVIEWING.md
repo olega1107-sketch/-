@@ -86,6 +86,14 @@ reviewer. JSON с именами и замечаниями хранится в �
 назначения достаточно opaque внутренних ID; ФИО, email и персональные данные в
 review JSON и briefs не требуются.
 
+Чтобы не редактировать основной review JSON вручную, заполните только восемь
+opaque ID в
+[`reviewer-assignments-template-v1.json`](deploy/reference/reviewer-assignments-template-v1.json)
+и примените их по процедуре из
+[architecture review runbook](deploy/reference/architecture-review-runbook.md).
+Генератор принимает только полностью неназначенный plan, назначает все дорожки
+одновременно и создаёт новый защищённый файл без перезаписи существующего.
+
 ## Безопасная выдача доступа
 
 Коллегам выдаётся read-only доступ к exact Git commit или tag. Доступ к

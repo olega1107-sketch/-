@@ -10,17 +10,36 @@
    в игнорируемый каталог `review-output/`.
 2. Указать полный commit, аннотированный tag и `report_sha256` успешного
    `review-package-preflight.mjs`.
-3. Назначить decision owner, независимого final reviewer и reviewer для каждой
-   из шести дорожек из [руководства](../../REVIEWING.md).
+3. Скопировать
+   [`reviewer-assignments-template-v1.json`](reviewer-assignments-template-v1.json)
+   в защищённый или игнорируемый каталог и заменить восемь значений
+   `replace-*` на opaque ID: decision owner, независимого final reviewer и
+   reviewer для каждой из шести дорожек из [руководства](../../REVIEWING.md).
 4. Использовать только непрямые идентификаторы людей и evidence, без токенов,
    URL с credentials или содержимого закрытых документов.
+
+Назначения применяются к исходному, полностью неназначенному review plan и
+всегда создают новый файл:
+
+```bash
+node scripts/reviewer-assignments.mjs \
+  /secure/review/ARCH-2026-001/architecture-review-plan.json \
+  /secure/review/ARCH-2026-001/reviewer-assignments.json \
+  /secure/review/ARCH-2026-001/architecture-review-assigned.json
+```
+
+Генератор требует точный состав полей, назначает все шесть дорожек сразу со
+статусом `IN_REVIEW`, проверяет независимость final reviewer и создаёт output с
+mode `0600`. Существующий файл не перезаписывается. Один reviewer может вести
+несколько дорожек; final reviewer не может совпадать ни с одним из назначенных
+owner/reviewer.
 
 После создания review JSON сгенерировать рабочий пакет из exact clean baseline:
 
 ```bash
 node scripts/reviewer-handoff.mjs \
   /secure/review/ARCH-2026-001/reviewer-packet \
-  /secure/review/ARCH-2026-001/architecture-review.json
+  /secure/review/ARCH-2026-001/architecture-review-assigned.json
 ```
 
 Генератор проверяет schema review, аннотированный tag, совпадение workspace

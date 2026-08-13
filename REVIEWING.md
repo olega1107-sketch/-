@@ -89,3 +89,18 @@ node deploy/reference/scripts/review-package-preflight.mjs
 Любой `FAIL`, dirty worktree, неотслеживаемые файлы, private key, credential
 pattern, runtime state, target evidence или broken local link блокируют выдачу
 доступа к этому snapshot.
+
+Если reviewer отдельно получает release evidence, его нельзя считать
+проверенным только по наличию JSON. Сначала выполняется проверка внутренних
+хешей и закрытых прав:
+
+```bash
+node deploy/reference/scripts/release-evidence-verify.mjs \
+  /secure/change/CHG-123/release-evidence
+```
+
+Для подтверждения исходных и build-файлов вторым аргументом передаётся
+сохранённый builder workspace. В отчёте должны быть
+`verification_scope=evidence_and_workspace`, `workspace_match=PASS` и четыре
+`artifact_match=PASS`. Даже этот результат не доказывает registry digest,
+подпись OCI artifact или target readiness: они проверяются отдельными gates.

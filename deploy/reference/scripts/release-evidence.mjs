@@ -17,7 +17,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWorkspaceRoot = path.resolve(scriptDirectory, '../../..');
 const executionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/;
 const safeRelativePathPattern = /^[A-Za-z0-9._/-]+$/;
-const expectedPnpmVersion = '11.16.0';
+export const releaseEvidencePnpmVersion = '11.16.0';
 const allowedCheckIds = new Set([
   'release.director',
   'release.gateway',
@@ -207,7 +207,7 @@ async function verifyReleaseToolchain(root, profiles, runner) {
       'package.json',
     );
     const document = JSON.parse(await readFile(packagePath, 'utf8'));
-    if (document.packageManager !== `pnpm@${expectedPnpmVersion}`) {
+    if (document.packageManager !== `pnpm@${releaseEvidencePnpmVersion}`) {
       throw new Error('Every release package must pin the approved pnpm version.');
     }
   }
@@ -216,8 +216,8 @@ async function verifyReleaseToolchain(root, profiles, runner) {
     environment: childEnvironment(),
   });
   const version = result.stdout.trim();
-  if (result.exitCode !== 0 || version !== expectedPnpmVersion) {
-    throw new Error(`Release builder requires pnpm ${expectedPnpmVersion}.`);
+  if (result.exitCode !== 0 || version !== releaseEvidencePnpmVersion) {
+    throw new Error(`Release builder requires pnpm ${releaseEvidencePnpmVersion}.`);
   }
   return { pnpm_version: version };
 }

@@ -122,8 +122,13 @@ fail-closed validator не позволяют считать `FAIL`, `NOT_RUN` �
 runtime и read-only filesystem profile оформлены. Fail-closed OCI release
 orchestrator реализует multi-platform build/push, registry digest verification,
 CycloneDX SBOM, Trivy policy, Cosign image/SBOM signing и защищённый evidence;
-его отказные сценарии покрыты synthetic tests. Фактический запуск на approved
-builder и registry остаётся внешним release gate со статусом `NOT_RUN`. Следующий
+его отказные сценарии покрыты synthetic tests. Четырёхпрофильный release
+collector выполняет frozen offline preparation до cross-package checks, строго
+проверяет фактическую версию pnpm и хеширует source, logs и build manifests.
+Отдельный fail-closed verifier подтверждает целостность collection, а с
+сохранённым builder workspace сопоставляет исходники и каждый artifact file.
+Фактический запуск OCI release на approved builder и registry остаётся внешним
+release gate со статусом `NOT_RUN`. Следующий
 Kubernetes target renderer теперь формирует digest-only prerequisites,
 migration Job и workloads с restricted PSS, default-deny NetworkPolicy,
 external-secret boundary, RWO PVC и защищённым render evidence. Runtime migrator

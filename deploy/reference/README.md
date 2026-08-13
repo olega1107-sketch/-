@@ -271,6 +271,31 @@ frozen offline install, static checks, tests и clean build, а затем за�
 workspace во время сбора блокирует evidence. Успех локального запуска не заменяет digest фактически
 опубликованного image/artifact и не закрывает остальные target checks.
 
+Независимая проверка collection выполняется без повторного запуска команд:
+
+```bash
+node scripts/release-evidence-verify.mjs \
+  /secure/change/CHG-123/release-evidence
+```
+
+Режим `evidence_integrity` fail-closed проверяет private permissions, точный
+набор файлов, schema, команды всех четырёх профилей, canonical collection hash,
+log hashes и source/build manifest hashes. Он не утверждает, что рецензент видел
+байты, из которых построены manifest. Для полной локальной сверки передаётся
+сохранённый builder workspace после collection:
+
+```bash
+node scripts/release-evidence-verify.mjs \
+  /secure/change/CHG-123/release-evidence \
+  /secure/build/CHG-123/workspace
+```
+
+Режим `evidence_and_workspace` дополнительно сверяет весь source tree,
+`package.json`, lockfiles, каждый файл трёх `dist` и deployment tooling tree.
+Отсутствующий или изменённый artifact, лишний evidence-файл и ослабленные права
+делают документ невалидным. Эта проверка не заменяет публикацию и проверку OCI
+digest/signature.
+
 OCI release запускается только на clean approved builder с настроенной внешней
 registry и signing authentication. Конфигурация содержит несекретные policy IDs,
 точные версии инструментов, pinned base images и release tags; значения из

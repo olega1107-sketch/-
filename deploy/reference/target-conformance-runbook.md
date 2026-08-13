@@ -72,6 +72,22 @@ workspace во время сбора блокирует результат. `PAS
 основном документе берутся из registry после публикации, а не вычисляются из
 локального `dist`.
 
+До переноса любого release status независимый reviewer запускает:
+
+```bash
+node scripts/release-evidence-verify.mjs \
+  /secure/change/CHG-123/release-evidence \
+  /secure/build/CHG-123/workspace
+```
+
+Для `release.*=PASS` требуется `release_gate=PASS`,
+`verification_scope=evidence_and_workspace`, `workspace_match=PASS` и
+`artifact_match=PASS` для всех четырёх профилей. Проверка без builder workspace
+имеет scope `evidence_integrity`: она подтверждает внутренние хеши collection,
+но не позволяет утверждать, что исходные и build-файлы были независимо
+сопоставлены. Код `1` означает корректную, но заблокированную collection; код
+`2` означает невалидное или повреждённое evidence.
+
 Registry IDs: `release.director`, `release.gateway`, `release.ui`,
 `release.deployment`.
 
@@ -304,8 +320,9 @@ Pilot разрешён только когда все обязательные �
 contention, restore manifest или audit является stop-ship и не обходится
 временным insecure flag.
 
-Независимый reviewer проверяет ссылки на исходные artifacts, сверяет manifest
-hash с защищённым evidence document и только после этого ставит
+Независимый reviewer проверяет ссылки на исходные artifacts, запускает
+`release-evidence-verify.mjs`, сверяет manifest hash с защищённым evidence
+document и только после этого ставит
 `evidence.peer_review=PASS`. Reviewer не может совпадать с rollout owner.
 Архитектурная часть peer review дополнительно должна иметь `PASS` от
 [`architecture-review.mjs`](architecture-review-runbook.md); его report hash

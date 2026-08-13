@@ -86,6 +86,10 @@ Kubernetes, PostgreSQL, secret manager, CI signing identity и production eviden
 node deploy/reference/scripts/review-package-preflight.mjs
 ```
 
+Release evidence также требует корень чистого Git snapshot. Его source manifest
+формируется из `git ls-files`: ignored internal review/build paths исключены,
+а modified, staged, обычные untracked и non-regular tracked paths блокируют сбор.
+
 Любой `FAIL`, dirty worktree, неотслеживаемые файлы, private key, credential
 pattern, runtime state, target evidence или broken local link блокируют выдачу
 доступа к этому snapshot.

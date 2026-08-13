@@ -32,7 +32,8 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
   outage limits, RPO/RTO, owners, alert thresholds и рисков pilot profile;
 - `scripts/release-evidence.mjs` — изолированный сбор release evidence для
   Director, Gateway и UI; все frozen offline installs завершаются до первой
-  cross-package проверки, а фактическая версия pnpm сверяется с package metadata;
+  cross-package проверки, фактическая версия pnpm сверяется с package metadata,
+  а source scope строится только из чистого набора Git tracked regular files;
 - `scripts/container-preflight.mjs` — статическая проверка OCI build/runtime
   contracts и canonical base image references;
 - `scripts/oci-release.mjs` и `oci-release-config.example.json` — fail-closed
@@ -276,6 +277,13 @@ output directory вне source workspace и не наследует application 
 ```bash
 node scripts/release-evidence.mjs /secure/change/CHG-123/release-evidence CHG-123
 ```
+
+Workspace обязан быть корнем чистого Git snapshot. Modified, staged и обычные
+untracked paths блокируют collection; ignored build/private paths допускаются,
+но не читаются и не входят ни в общий source manifest, ни в source artifact
+deployment-профиля. Symlink, submodule и другие non-regular tracked objects
+также блокируют collection. Collector повторяет Git/source проверку после всех
+профилей и отклоняет смену commit или содержимого во время запуска.
 
 Он фиксирует source-tree до и после запуска, выполняет для трёх компонентов
 frozen offline install, static checks, tests и clean build, а затем запускает

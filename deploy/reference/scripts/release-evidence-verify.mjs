@@ -8,20 +8,13 @@ import {
   releaseEvidencePnpmVersion,
   releaseProfiles,
 } from './release-evidence.mjs';
+import { gitSourceManifest } from './git-source-manifest.mjs';
 
 const digestPattern = /^sha256:[0-9a-f]{64}$/;
 const executionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/;
 const safeRelativePathPattern = /^[A-Za-z0-9._/-]+$/;
 const maximumJsonBytes = 32 * 1024 * 1024;
 const maximumManifestFiles = 100_000;
-const ignoredSourceDirectories = new Set([
-  '.git',
-  '.pnpm-store',
-  '.vite',
-  'coverage',
-  'dist',
-  'node_modules',
-]);
 const profileById = new Map(
   releaseProfiles.map((profile) => [profile.id, profile]),
 );
@@ -483,7 +476,7 @@ async function verifyWorkspace(
   artifactDocuments,
 ) {
   await assertRegularDirectory(root, 'release workspace');
-  const currentSource = await sourceTreeManifest(root);
+  const currentSource = await gitSourceManifest(root);
   if (canonicalHash(currentSource.files) !== sourceDocument.tree_sha256) {
     throw new Error('Workspace source tree does not match the release evidence.');
   }
@@ -518,10 +511,9 @@ async function verifyWorkspace(
         tree_sha256: artifactDocument.build_tree_sha256,
       });
     } else {
-      const sourceTree = await directoryManifest(
-        workingDirectory,
-        'source artifact',
-      );
+      const sourceTree = await gitSourceManifest(root, {
+        pathPrefix: profile.directory,
+      });
       if (canonicalHash(sourceTree.files) !== artifactDocument.source_tree_sha256) {
         throw new Error(
           `Workspace artifact does not match release evidence for ${check.id}.`,
@@ -597,59 +589,6 @@ async function assertExactEvidenceFiles(root, expectedFiles) {
   }
   for (const name of actual) {
     await assertPrivateRegularFile(path.join(root, name), 'evidence file');
-  }
-}
-
-async function sourceTreeManifest(root) {
-  const files = [];
-  await walkSourceTree(root, root, files);
-  if (files.length === 0) throw new Error('Release workspace is empty.');
-  return {
-    files,
-    totalBytes: files.reduce(
-      (total, file) => safeAdd(total, file.size_bytes),
-      0,
-    ),
-  };
-}
-
-async function walkSourceTree(root, current, files) {
-  const entries = await readdir(current, { withFileTypes: true });
-  entries.sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) {
-    if (
-      ignoredSourceDirectories.has(entry.name) &&
-      (entry.isDirectory() || entry.isSymbolicLink())
-    ) {
-      continue;
-    }
-    if (
-      entry.name === '.DS_Store' ||
-      entry.name.endsWith('.log') ||
-      entry.name.endsWith('.tsbuildinfo')
-    ) {
-      continue;
-    }
-    const absolutePath = path.join(current, entry.name);
-    const relativePath = path.relative(root, absolutePath).split(path.sep).join('/');
-    if (!safeRelativePathPattern.test(relativePath)) {
-      throw new Error('Release workspace contains an unsafe relative path.');
-    }
-    if (entry.isSymbolicLink()) {
-      throw new Error('Release workspace must not contain symbolic links.');
-    }
-    if (entry.isDirectory()) {
-      await walkSourceTree(root, absolutePath, files);
-    } else if (entry.isFile()) {
-      const metadata = await lstat(absolutePath);
-      files.push({
-        path: relativePath,
-        size_bytes: metadata.size,
-        sha256: await fileHash(absolutePath),
-      });
-    } else {
-      throw new Error('Release workspace contains an unsupported filesystem object.');
-    }
   }
 }
 

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import {
   chmod,
   mkdir,
@@ -47,6 +48,34 @@ test('verifier matches source, package metadata and every artifact to the builde
     assert.equal(report.source.workspace_match, 'PASS');
     assert.ok(
       report.workspace.profiles.every((profile) => profile.artifact_match === 'PASS'),
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('workspace verification excludes ignored private files from both source scopes', async () => {
+  const fixture = await completeFixture();
+  try {
+    const privateDirectory = path.join(fixture.workspace, 'review-output');
+    const profilePrivateDirectory = path.join(
+      fixture.workspace,
+      'deploy/reference/private',
+    );
+    await mkdir(privateDirectory);
+    await mkdir(profilePrivateDirectory);
+    await writeFile(path.join(privateDirectory, 'review.json'), '{"private":true}\n');
+    await writeFile(path.join(profilePrivateDirectory, 'note.txt'), 'private\n');
+
+    const report = await verifyReleaseEvidence({
+      evidenceDirectory: fixture.evidence,
+      workspaceRoot: fixture.workspace,
+    });
+    assert.equal(report.source.workspace_match, 'PASS');
+    assert.equal(
+      report.workspace.profiles.find((profile) => profile.id === 'release.deployment')
+        .artifact_match,
+      'PASS',
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -106,7 +135,7 @@ test('workspace matching rejects source and build artifact drift', async () => {
         evidenceDirectory: sourceDrift.evidence,
         workspaceRoot: sourceDrift.workspace,
       }),
-      /source tree does not match/,
+      /clean Git snapshot/,
     );
   } finally {
     await rm(sourceDrift.root, { recursive: true, force: true });
@@ -182,11 +211,16 @@ async function completeFixture({ failDirectorCheck = false } = {}) {
       writeFile(path.join(absolute, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ]);
   }
+  await writeFile(
+    path.join(workspace, '.gitignore'),
+    ['dist/', 'review-output/', 'deploy/reference/private/', ''].join('\n'),
+  );
   await mkdir(path.join(workspace, 'deploy/reference'), { recursive: true });
   await writeFile(
     path.join(workspace, 'deploy/reference/tooling.mjs'),
     'export const ready = true;\n',
   );
+  initializeWorkspace(workspace);
 
   await collectReleaseEvidence({
     workspaceRoot: workspace,
@@ -220,4 +254,16 @@ async function completeFixture({ failDirectorCheck = false } = {}) {
     },
   });
   return { root, workspace, evidence };
+}
+
+function initializeWorkspace(workspace) {
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: workspace });
+  execFileSync('git', ['config', 'user.name', 'Release Fixture'], { cwd: workspace });
+  execFileSync('git', ['config', 'user.email', 'release-fixture@example.invalid'], {
+    cwd: workspace,
+  });
+  execFileSync('git', ['add', '--all'], { cwd: workspace });
+  execFileSync('git', ['commit', '-q', '-m', 'initial release fixture'], {
+    cwd: workspace,
+  });
 }

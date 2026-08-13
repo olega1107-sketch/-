@@ -91,6 +91,10 @@ cd deploy/reference
 node scripts/release-evidence.mjs /secure/change/CHG-123/release-evidence CHG-123
 ```
 
+Collector запускается только из корня чистого Git snapshot и хэширует ровно
+tracked regular files. Обычный untracked или modified path блокирует сбор;
+ignored private/build paths не читаются и не попадают в protected evidence.
+
 Collector не наследует application secrets, сначала завершает frozen offline
 install для Director, Gateway и UI, затем удаляет старые `dist` и выполняет
 cross-package checks. До install фактическая версия pnpm fail-closed сверяется

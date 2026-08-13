@@ -80,6 +80,7 @@ export const requiredReviewFiles = Object.freeze([
   'deploy/reference/conformance/evidence-template-v3.json',
   'deploy/reference/pilot-adoption-decision-template-v1.json',
   'deploy/reference/scripts/pilot-adoption-decision.mjs',
+  'deploy/reference/scripts/git-source-manifest.mjs',
   'deploy/reference/scripts/conformance-evidence.mjs',
   'deploy/reference/target-conformance-runbook.md',
 ]);

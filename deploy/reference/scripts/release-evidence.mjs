@@ -13,6 +13,8 @@ import {
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
+import { gitSourceManifest } from './git-source-manifest.mjs';
+
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWorkspaceRoot = path.resolve(scriptDirectory, '../../..');
 const executionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/;
@@ -23,14 +25,6 @@ const allowedCheckIds = new Set([
   'release.gateway',
   'release.ui',
   'release.deployment',
-]);
-const ignoredSourceDirectories = new Set([
-  '.git',
-  '.pnpm-store',
-  '.vite',
-  'coverage',
-  'dist',
-  'node_modules',
 ]);
 
 export const releaseProfiles = [
@@ -116,8 +110,8 @@ export async function collectReleaseEvidence({
   const checks = [];
 
   try {
+    const sourceBefore = await gitSourceManifest(root);
     const toolchain = await verifyReleaseToolchain(root, profiles, runner);
-    const sourceBefore = await sourceTreeManifest(root);
     const sourceDocument = {
       schema_version: 1,
       file_count: sourceBefore.files.length,
@@ -151,9 +145,17 @@ export async function collectReleaseEvidence({
         }),
       );
     }
-    const sourceAfter = await sourceTreeManifest(root);
+    let sourceAfter;
+    try {
+      sourceAfter = await gitSourceManifest(root);
+    } catch {
+      throw new Error('Source workspace changed during release evidence collection.');
+    }
     const sourceAfterHash = canonicalHash(sourceAfter.files);
-    if (sourceAfterHash !== sourceDocument.tree_sha256) {
+    if (
+      sourceAfter.headCommit !== sourceBefore.headCommit ||
+      sourceAfterHash !== sourceDocument.tree_sha256
+    ) {
       throw new Error('Source workspace changed during release evidence collection.');
     }
     const completedAt = new Date().toISOString();
@@ -261,7 +263,7 @@ async function collectProfile({
   if (status === 'PASS') {
     artifact = profile.artifact_kind === 'build'
       ? await buildArtifactEvidence(workingDirectory, output, slug)
-      : await sourceArtifactEvidence(workingDirectory, output, slug);
+      : await sourceArtifactEvidence(root, profile.directory, output, slug);
   }
 
   return {
@@ -335,8 +337,8 @@ async function buildArtifactEvidence(workingDirectory, output, slug) {
   };
 }
 
-async function sourceArtifactEvidence(workingDirectory, output, slug) {
-  const sourceTree = await directoryManifest(workingDirectory);
+async function sourceArtifactEvidence(root, profileDirectory, output, slug) {
+  const sourceTree = await gitSourceManifest(root, { pathPrefix: profileDirectory });
   const artifactDocument = {
     schema_version: 1,
     artifact_kind: 'source',
@@ -372,58 +374,6 @@ async function directoryManifest(directory) {
     files,
     totalBytes: files.reduce((sum, file) => safeAdd(sum, file.size_bytes), 0),
   };
-}
-
-async function sourceTreeManifest(root) {
-  const files = [];
-  await walkSourceTree(root, root, files);
-  if (files.length === 0) {
-    throw new Error('Source workspace is empty.');
-  }
-  return {
-    files,
-    totalBytes: files.reduce((sum, file) => safeAdd(sum, file.size_bytes), 0),
-  };
-}
-
-async function walkSourceTree(root, current, files) {
-  const entries = await readdir(current, { withFileTypes: true });
-  entries.sort((left, right) => left.name.localeCompare(right.name));
-  for (const entry of entries) {
-    if (
-      ignoredSourceDirectories.has(entry.name) &&
-      (entry.isDirectory() || entry.isSymbolicLink())
-    ) {
-      continue;
-    }
-    if (
-      entry.name === '.DS_Store' ||
-      entry.name.endsWith('.log') ||
-      entry.name.endsWith('.tsbuildinfo')
-    ) {
-      continue;
-    }
-    const absolutePath = path.join(current, entry.name);
-    const relativePath = path.relative(root, absolutePath).split(path.sep).join('/');
-    if (!safeRelativePathPattern.test(relativePath)) {
-      throw new Error('Source workspace contains an unsafe relative path.');
-    }
-    if (entry.isSymbolicLink()) {
-      throw new Error('Source workspace must not contain symbolic links.');
-    }
-    if (entry.isDirectory()) {
-      await walkSourceTree(root, absolutePath, files);
-    } else if (entry.isFile()) {
-      const metadata = await lstat(absolutePath);
-      files.push({
-        path: relativePath,
-        size_bytes: metadata.size,
-        sha256: await fileHash(absolutePath),
-      });
-    } else {
-      throw new Error('Source workspace contains an unsupported filesystem object.');
-    }
-  }
 }
 
 async function walkDirectory(root, current, files) {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
+import { mkdir, mkdtemp, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { test } from 'node:test';
@@ -33,7 +34,7 @@ test('collector writes private PASS evidence and hashes build output', async () 
     assert.match(manifest.checks[0].artifact.build_tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(manifest.collection_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal(manifest.toolchain.pnpm_version, '11.16.0');
-    assert.equal(manifest.source.file_count, 3);
+    assert.equal(manifest.source.file_count, 4);
     assert.match(manifest.source.tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(output)).mode & 0o777, 0o700);
     for (const file of [
@@ -63,6 +64,7 @@ test('collector prepares every build package before running cross-package checks
       ),
       writeFile(path.join(gatewayDirectory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ]);
+    commitWorkspace(fixture.workspace, 'add gateway fixture');
     const calls = [];
     const profiles = [
       {
@@ -272,6 +274,143 @@ test('collector blocks evidence when source changes during the run', async () =>
   }
 });
 
+test('collector hashes only tracked files and excludes ignored private paths', async () => {
+  const fixture = await fixtureWorkspace();
+  try {
+    const privateDirectory = path.join(fixture.workspace, 'review-output');
+    const profilePrivateDirectory = path.join(
+      fixture.workspace,
+      'deploy/reference/private',
+    );
+    await mkdir(privateDirectory);
+    await mkdir(profilePrivateDirectory);
+    await writeFile(path.join(privateDirectory, 'internal-review.json'), '{"private":true}\n');
+    await writeFile(path.join(profilePrivateDirectory, 'operator-note.txt'), 'private\n');
+
+    const output = path.join(fixture.root, 'evidence-ignored-private');
+    const manifest = await collectReleaseEvidence({
+      workspaceRoot: fixture.workspace,
+      outputDirectory: output,
+      executionId: 'CHG-2026-1010',
+      profiles: [fixture.sourceProfile],
+      runner: successfulRunner,
+    });
+    const source = JSON.parse(
+      await readFile(path.join(output, 'source-manifest.json'), 'utf8'),
+    );
+    const artifact = JSON.parse(
+      await readFile(path.join(output, 'release-deployment-artifact.json'), 'utf8'),
+    );
+
+    assert.equal(manifest.source.file_count, 4);
+    assert.equal(source.files.some((file) => file.path.startsWith('review-output/')), false);
+    assert.deepEqual(artifact.files.map((file) => file.path), ['tooling.mjs']);
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
+test('collector rejects modified, untracked, and non-Git source workspaces', async () => {
+  const modified = await fixtureWorkspace();
+  try {
+    let modifiedRunnerCalls = 0;
+    await writeFile(
+      path.join(modified.workspace, 'deploy/reference/tooling.mjs'),
+      'export const ready = false;\n',
+    );
+    await assert.rejects(
+      collectReleaseEvidence({
+        workspaceRoot: modified.workspace,
+        outputDirectory: path.join(modified.root, 'evidence-modified'),
+        executionId: 'CHG-2026-1011',
+        profiles: [modified.sourceProfile],
+        runner: async (...arguments_) => {
+          modifiedRunnerCalls += 1;
+          return successfulRunner(...arguments_);
+        },
+      }),
+      /clean Git snapshot/,
+    );
+    assert.equal(modifiedRunnerCalls, 0);
+  } finally {
+    await rm(modified.root, { recursive: true, force: true });
+  }
+
+  const untracked = await fixtureWorkspace();
+  try {
+    let untrackedRunnerCalls = 0;
+    await writeFile(path.join(untracked.workspace, 'untracked.txt'), 'untracked\n');
+    await assert.rejects(
+      collectReleaseEvidence({
+        workspaceRoot: untracked.workspace,
+        outputDirectory: path.join(untracked.root, 'evidence-untracked'),
+        executionId: 'CHG-2026-1012',
+        profiles: [untracked.sourceProfile],
+        runner: async (...arguments_) => {
+          untrackedRunnerCalls += 1;
+          return successfulRunner(...arguments_);
+        },
+      }),
+      /clean Git snapshot/,
+    );
+    assert.equal(untrackedRunnerCalls, 0);
+  } finally {
+    await rm(untracked.root, { recursive: true, force: true });
+  }
+
+  const root = await mkdtemp(path.join(tmpdir(), 'dirizhor-release-non-git-'));
+  const workspace = path.join(root, 'workspace');
+  await mkdir(path.join(workspace, 'deploy/reference'), { recursive: true });
+  await writeFile(
+    path.join(workspace, 'deploy/reference/tooling.mjs'),
+    'export const ready = true;\n',
+  );
+  try {
+    await assert.rejects(
+      collectReleaseEvidence({
+        workspaceRoot: workspace,
+        outputDirectory: path.join(root, 'evidence'),
+        executionId: 'CHG-2026-1013',
+        profiles: [
+          {
+            id: 'release.deployment',
+            directory: 'deploy/reference',
+            artifact_kind: 'source',
+            commands: [['node', ['--test', 'test/*.test.mjs']]],
+          },
+        ],
+        runner: successfulRunner,
+      }),
+      /readable Git repository/,
+    );
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('collector rejects tracked symbolic links from the Git source scope', async () => {
+  const fixture = await fixtureWorkspace();
+  try {
+    await symlink(
+      'deploy/reference/tooling.mjs',
+      path.join(fixture.workspace, 'tracked-link.mjs'),
+    );
+    commitWorkspace(fixture.workspace, 'add tracked symlink');
+    await assert.rejects(
+      collectReleaseEvidence({
+        workspaceRoot: fixture.workspace,
+        outputDirectory: path.join(fixture.root, 'evidence-symlink'),
+        executionId: 'CHG-2026-1014',
+        profiles: [fixture.sourceProfile],
+        runner: successfulRunner,
+      }),
+      /regular files only/,
+    );
+  } finally {
+    await rm(fixture.root, { recursive: true, force: true });
+  }
+});
+
 async function fixtureWorkspace() {
   const root = await mkdtemp(path.join(tmpdir(), 'dirizhor-release-evidence-'));
   const workspace = path.join(root, 'workspace');
@@ -281,12 +420,17 @@ async function fixtureWorkspace() {
   await mkdir(sourceDirectory, { recursive: true });
   await Promise.all([
     writeFile(
+      path.join(workspace, '.gitignore'),
+      ['dist/', 'review-output/', 'deploy/reference/private/', ''].join('\n'),
+    ),
+    writeFile(
       path.join(packageDirectory, 'package.json'),
       '{"private":true,"packageManager":"pnpm@11.16.0"}\n',
     ),
     writeFile(path.join(packageDirectory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     writeFile(path.join(sourceDirectory, 'tooling.mjs'), 'export const ready = true;\n'),
   ]);
+  initializeWorkspace(workspace);
   return {
     root,
     workspace,
@@ -307,6 +451,20 @@ async function fixtureWorkspace() {
       commands: [['node', ['--test', 'test/*.test.mjs']]],
     },
   };
+}
+
+function initializeWorkspace(workspace) {
+  execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: workspace });
+  execFileSync('git', ['config', 'user.name', 'Release Fixture'], { cwd: workspace });
+  execFileSync('git', ['config', 'user.email', 'release-fixture@example.invalid'], {
+    cwd: workspace,
+  });
+  commitWorkspace(workspace, 'initial release fixture');
+}
+
+function commitWorkspace(workspace, message) {
+  execFileSync('git', ['add', '--all'], { cwd: workspace });
+  execFileSync('git', ['commit', '-q', '-m', message], { cwd: workspace });
 }
 
 async function successfulRunner(_program, arguments_, options) {

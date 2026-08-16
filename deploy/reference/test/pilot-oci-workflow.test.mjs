@@ -22,6 +22,9 @@ test('pilot OCI release is manual, pinned, protected, and fail-closed', async ()
   );
   assert.match(workflow, /--password-stdin/);
   assert.match(workflow, /docker login "\$\{REGISTRY_HOST\}"/);
+  assert.equal(workflow.includes('DOCKER_CONFIG='), false);
+  assert.match(workflow, /rm -f "\$\{HOME\}\/\.docker\/config\.json"/);
+  assert.match(workflow, /if-no-files-found: warn/);
   assert.match(workflow, /cancel-in-progress: false/);
 
   for (const pinnedAction of [

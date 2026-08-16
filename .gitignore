@@ -24,9 +24,26 @@ kubeconfig.*
 oci-release-failed.json
 render-evidence.json
 .pnpm-store/
+.tools/
 node_modules/
 dist/
 coverage/
 .vite/
 *.log
 *.tsbuildinfo
+
+# Terraform local state and generated files
+**/.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Terraform local variables
+*.tfvars
+*.tfvars.json
+!*.tfvars.example

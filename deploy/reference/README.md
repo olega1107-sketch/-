@@ -186,6 +186,32 @@ NUL-containing values. Содержимое и filesystem error в startup messa
 - фактическая OCI build/publish, image signing/scanning и применение
   orchestrator policy на target.
 
+## GitHub Actions без pilot
+
+`.github/workflows/architecture-ci.yml` запускает frozen install, check,
+lint, test и build для Director/Gateway/UI, все deployment/conformance
+тесты и статический container preflight. Workflow имеет только
+`contents: read`, не читает secrets, не публикует images и не создаёт
+облачные ресурсы. GitHub Actions закреплены по полным commit SHA.
+
+Синтетические `registry.invalid` digest в preflight проверяют только
+структуру Docker-контракта. Этот job не является OCI evidence и не
+закрывает `IPR-ENGINEERING-001`.
+
+## Ручная OCI-публикация pilot
+
+`.github/workflows/pilot-oci-release.yml` запускается только вручную и только
+через GitHub environment `digitalocean-pilot`. Он строит отдельный pinned
+Node/pnpm build image, затем Director/Gateway/Edge, проверяет checksum
+инструментов, SBOM, `HIGH`/`CRITICAL` vulnerabilities, Sigstore signatures и
+сохраняет OCI evidence artifact. Workflow не разворачивает Kubernetes и не
+открывает ingress.
+
+До создания защищённого environment secret и реального успешного запуска
+статус OCI release остаётся `NOT_RUN`. DigitalOcean token нельзя добавлять как
+repository secret или помещать в git; допустим только отдельный краткоживущий
+environment secret `DIGITALOCEAN_ACCESS_TOKEN` с ручным approval.
+
 ## Ephemeral mTLS smoke
 
 Локальный smoke выпускает временную CA и отдельные `serverAuth`/`clientAuth`

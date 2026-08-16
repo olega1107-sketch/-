@@ -1,0 +1,113 @@
+name: Architecture CI
+
+on:
+  push:
+    branches:
+      - main
+      - "codex/**"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: architecture-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.16.0
+
+jobs:
+  applications:
+    name: ${{ matrix.component }} checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: director
+            working_directory: director/reference
+            lint: true
+          - component: gateway
+            working_directory: gateway/reference
+            lint: true
+          - component: ui
+            working_directory: ui/reference
+            lint: false
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ matrix.working_directory }}
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Set up pinned pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          run_install: false
+
+      - name: Verify pnpm version
+        run: test "$(pnpm --version)" = "${PNPM_VERSION}"
+
+      - name: Install frozen dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      - name: Verify migration checksums
+        if: matrix.component == 'director'
+        run: pnpm db:checksums
+
+      - name: Type-check
+        run: pnpm check
+
+      - name: Lint
+        if: matrix.lint
+        run: pnpm lint
+
+      - name: Test
+        run: pnpm test --maxWorkers=2
+
+      - name: Build
+        run: pnpm build
+
+  deployment-gates:
+    name: Deployment and architecture gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Run deployment and conformance tests
+        run: node --test deploy/reference/test/*.test.mjs
+
+      - name: Validate container contracts without publishing
+        env:
+          DIRIZHOR_NODE_BUILD_IMAGE: registry.invalid/approved/node-build@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+          DIRIZHOR_NODE_RUNTIME_IMAGE: registry.invalid/approved/node-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
+          DIRIZHOR_NGINX_RUNTIME_IMAGE: registry.invalid/approved/nginx-runtime@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+          DIRIZHOR_PNPM_VERSION: 11.16.0
+        run: node deploy/reference/scripts/container-preflight.mjs

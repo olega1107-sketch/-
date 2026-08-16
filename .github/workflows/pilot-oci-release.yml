@@ -1,0 +1,273 @@
+name: Pilot OCI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Approved change or release identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pilot-oci-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY_HOST: registry.digitalocean.com
+  REGISTRY: registry.digitalocean.com/dirizherpilotregistry
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.16.0
+  DOCKER_VERSION: 28.3.3
+  BUILDX_VERSION: 0.28.0
+  SYFT_VERSION: 1.45.1
+  TRIVY_VERSION: 0.74.0
+  COSIGN_VERSION: 3.0.2
+  NODE_RUNTIME_IMAGE: docker.io/library/node:24.19.0-bookworm-slim@sha256:3638d9a6fe4030bd716be989438248074489337ba3275657f93595428be4fc03
+  NGINX_RUNTIME_IMAGE: docker.io/nginxinc/nginx-unprivileged:1.29.1-alpine-slim@sha256:ba47582e1ad3ad1df0c12a21bf464770c5b995e5f06db4aabead4ab1ae2858c4
+
+jobs:
+  release:
+    name: Build, scan, sign, and publish pilot images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    environment: digitalocean-pilot
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Set up pinned Docker
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4.7.0
+        with:
+          version: ${{ env.DOCKER_VERSION }}
+
+      - name: Set up pinned Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v${{ env.BUILDX_VERSION }}
+
+      - name: Install pinned release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="${RUNNER_TEMP}/release-tools"
+          downloads="${RUNNER_TEMP}/release-downloads"
+          install -d -m 0700 "${tools}" "${downloads}"
+
+          curl --fail --location --silent --show-error \
+            --output "${downloads}/syft.tar.gz" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' \
+            '20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716' \
+            "${downloads}/syft.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/syft.tar.gz" -C "${tools}" syft
+
+          curl --fail --location --silent --show-error \
+            --output "${downloads}/trivy.tar.gz" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          printf '%s  %s\n' \
+            '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' \
+            "${downloads}/trivy.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/trivy.tar.gz" -C "${tools}" trivy
+
+          curl --fail --location --silent --show-error \
+            --output "${tools}/cosign" \
+            "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          printf '%s  %s\n' \
+            '46dbdcb5467a3dfec2526923d0b3365e40c8d9dc00ec23d5aca3437449e8cbfd' \
+            "${tools}/cosign" | sha256sum --check --strict
+
+          chmod 0555 "${tools}/syft" "${tools}/trivy" "${tools}/cosign"
+          printf '%s\n' "${tools}" >> "${GITHUB_PATH}"
+
+      - name: Verify release request and registry access
+        shell: bash
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$ ]]; then
+            echo 'release_id is invalid' >&2
+            exit 1
+          fi
+          test -n "${REGISTRY_TOKEN}"
+          DOCKER_CONFIG="${RUNNER_TEMP}/docker-config"
+          export DOCKER_CONFIG
+          install -d -m 0700 "${DOCKER_CONFIG}"
+          printf '%s' "${REGISTRY_TOKEN}" | docker login "${REGISTRY_HOST}" \
+            --username "${REGISTRY_TOKEN}" --password-stdin
+
+          release_suffix="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          certificate_identity="https://github.com/${GITHUB_WORKFLOW_REF}"
+          printf 'RELEASE_ID=%s\n' "${RELEASE_ID}" >> "${GITHUB_ENV}"
+          printf 'RELEASE_SUFFIX=%s\n' "${release_suffix}" >> "${GITHUB_ENV}"
+          printf 'CERTIFICATE_IDENTITY=%s\n' "${certificate_identity}" >> "${GITHUB_ENV}"
+          printf 'DOCKER_CONFIG=%s\n' "${DOCKER_CONFIG}" >> "${GITHUB_ENV}"
+
+      - name: Build pinned Node build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/node-build-evidence"
+          install -d -m 0700 "${evidence}"
+          node_build_tag="${REGISTRY}/node-build:${RELEASE_SUFFIX}"
+
+          docker buildx build \
+            --file deploy/reference/Dockerfile.node-build \
+            --platform linux/amd64 \
+            --provenance=mode=max \
+            --sbom=true \
+            --metadata-file "${evidence}/build-metadata.json" \
+            --build-arg "NODE_RUNTIME_IMAGE=${NODE_RUNTIME_IMAGE}" \
+            --build-arg "PNPM_VERSION=${PNPM_VERSION}" \
+            --tag "${node_build_tag}" \
+            --push .
+
+          node_build_digest="$(jq -er \
+            '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' \
+            "${evidence}/build-metadata.json")"
+          node_build_ref="${REGISTRY}/node-build@${node_build_digest}"
+          docker buildx imagetools inspect --raw "${node_build_ref}" \
+            > "${evidence}/manifest-index.json"
+          jq -e \
+            '[.manifests[].platform | select(.os == "linux" and .architecture == "amd64")] | length == 1' \
+            "${evidence}/manifest-index.json" > /dev/null
+          printf 'NODE_BUILD_IMAGE=%s\n' "${node_build_ref}" >> "${GITHUB_ENV}"
+
+      - name: Scan and sign Node build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/node-build-evidence"
+          syft "${NODE_BUILD_IMAGE}" -o "cyclonedx-json=${evidence}/sbom.cdx.json"
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' \
+            "${evidence}/sbom.cdx.json" > /dev/null
+          printf '%s\n' '# Suppressions are prohibited by the pilot policy.' \
+            > "${evidence}/trivy-empty.ignore"
+          trivy image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL \
+            --ignorefile "${evidence}/trivy-empty.ignore" --exit-on-eol 1 \
+            --format json --output "${evidence}/trivy.json" "${NODE_BUILD_IMAGE}"
+          jq -e '(.SchemaVersion | type == "number") and (.Results | type == "array")' \
+            "${evidence}/trivy.json" > /dev/null
+
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore")"
+          SIGSTORE_ID_TOKEN="$(jq -er \
+            '.value | select(type == "string" and length > 0)' <<< "${response}")"
+          export SIGSTORE_ID_TOKEN
+          echo "::add-mask::${SIGSTORE_ID_TOKEN}"
+          cosign sign --yes "${NODE_BUILD_IMAGE}"
+          cosign attest --yes --type cyclonedx \
+            --predicate "${evidence}/sbom.cdx.json" "${NODE_BUILD_IMAGE}"
+          cosign verify --output json \
+            --certificate-identity "${CERTIFICATE_IDENTITY}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${NODE_BUILD_IMAGE}" > "${evidence}/signature-verification.json"
+          cosign verify-attestation --type cyclonedx \
+            --certificate-identity "${CERTIFICATE_IDENTITY}" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+            "${NODE_BUILD_IMAGE}" > "${evidence}/attestation-verification.json"
+
+      - name: Create strict release configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          config_directory="${RUNNER_TEMP}/oci-config"
+          install -d -m 0700 "${config_directory}"
+          jq -n \
+            --arg execution_id "${RELEASE_ID}" \
+            --arg node_build "${NODE_BUILD_IMAGE}" \
+            --arg node_runtime "${NODE_RUNTIME_IMAGE}" \
+            --arg nginx_runtime "${NGINX_RUNTIME_IMAGE}" \
+            --arg director "${REGISTRY}/director:${RELEASE_SUFFIX}" \
+            --arg gateway "${REGISTRY}/gateway:${RELEASE_SUFFIX}" \
+            --arg edge "${REGISTRY}/edge:${RELEASE_SUFFIX}" \
+            --arg docker "${DOCKER_VERSION}" \
+            --arg buildx "${BUILDX_VERSION}" \
+            --arg syft "${SYFT_VERSION}" \
+            --arg trivy "${TRIVY_VERSION}" \
+            --arg cosign "${COSIGN_VERSION}" \
+            --arg certificate_identity "${CERTIFICATE_IDENTITY}" \
+            '{
+              schema_version: 1,
+              execution_id: $execution_id,
+              platforms: ["linux/amd64"],
+              base_images: {
+                node_build: $node_build,
+                node_runtime: $node_runtime,
+                nginx_runtime: $nginx_runtime
+              },
+              package_manager: "pnpm@11.16.0",
+              images: {director: $director, gateway: $gateway, edge: $edge},
+              toolchain: {
+                policy_id: "pilot-oci-toolchain-2026-08",
+                docker: $docker,
+                buildx: $buildx,
+                syft: $syft,
+                trivy: $trivy,
+                cosign: $cosign
+              },
+              vulnerability_policy: {
+                policy_id: "pilot-vulnerability-policy-2026-08",
+                scanner: "trivy",
+                severities: ["HIGH", "CRITICAL"],
+                ignore_unfixed: false,
+                exit_on_eol: true,
+                database_max_age_hours: 24,
+                allow_suppressions: false
+              },
+              signing: {
+                mode: "keyless",
+                certificate_identity: $certificate_identity,
+                certificate_oidc_issuer: "https://token.actions.githubusercontent.com"
+              }
+            }' > "${config_directory}/oci-release-config.json"
+          chmod 0600 "${config_directory}/oci-release-config.json"
+
+      - name: Release application images
+        shell: bash
+        run: |
+          set -euo pipefail
+          test ! -e "${RUNNER_TEMP}/oci-release-evidence"
+          response="$(curl --fail --silent --show-error \
+            --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore")"
+          SIGSTORE_ID_TOKEN="$(jq -er \
+            '.value | select(type == "string" and length > 0)' <<< "${response}")"
+          export SIGSTORE_ID_TOKEN
+          echo "::add-mask::${SIGSTORE_ID_TOKEN}"
+          node deploy/reference/scripts/oci-release.mjs \
+            "${RUNNER_TEMP}/oci-release-evidence" \
+            "${RUNNER_TEMP}/oci-config/oci-release-config.json"
+
+      - name: Remove registry credentials
+        if: always()
+        shell: bash
+        run: |
+          docker logout "${REGISTRY_HOST}" || true
+          rm -rf "${DOCKER_CONFIG}"
+
+      - name: Retain non-secret release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pilot-oci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ runner.temp }}/node-build-evidence
+            ${{ runner.temp }}/oci-release-evidence
+            ${{ runner.temp }}/oci-config/oci-release-config.json
+          if-no-files-found: error
+          retention-days: 30

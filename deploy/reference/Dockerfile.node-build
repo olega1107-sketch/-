@@ -1,0 +1,12 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_RUNTIME_IMAGE
+
+FROM ${NODE_RUNTIME_IMAGE}
+ARG NODE_RUNTIME_IMAGE
+ARG PNPM_VERSION
+RUN node -e 'const p=/^[^@\s]+@sha256:[0-9a-f]{64}$/; if (!p.test(process.env.NODE_RUNTIME_IMAGE || "")) process.exit(1)' && \
+    test "${PNPM_VERSION}" = "11.16.0" && \
+    corepack enable && \
+    corepack prepare "pnpm@${PNPM_VERSION}" --activate && \
+    test "$(pnpm --version)" = "${PNPM_VERSION}"

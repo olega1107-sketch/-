@@ -65,6 +65,11 @@ jobs:
       - name: Install frozen dependencies
         run: pnpm install --frozen-lockfile --ignore-scripts
 
+      - name: Install Gateway dependencies for Director E2E
+        if: matrix.component == 'director'
+        working-directory: gateway/reference
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
       - name: Verify migration checksums
         if: matrix.component == 'director'
         run: pnpm db:checksums

@@ -32,6 +32,10 @@ test('architecture CI is immutable, read-only, and cannot publish', async () => 
   assert.match(workflow, /run_install: false/);
   assert.match(workflow, /run: pnpm test --maxWorkers=2/);
   assert.match(workflow, /working-directory: \$\{\{ matrix\.working_directory \}\}/);
+  assert.match(
+    workflow,
+    /- name: Install Gateway dependencies for Director E2E\n        if: matrix\.component == 'director'\n        working-directory: gateway\/reference\n        run: pnpm install --frozen-lockfile --ignore-scripts/,
+  );
   assert.equal(workflow.includes('matrix.working-directory'), false);
   assert.match(workflow, /node --test deploy\/reference\/test\/\*\.test\.mjs/);
   assert.match(workflow, /node deploy\/reference\/scripts\/container-preflight\.mjs/);

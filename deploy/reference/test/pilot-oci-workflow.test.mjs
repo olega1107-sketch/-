@@ -85,5 +85,9 @@ test('Node build image pins its parent and exact package manager', async () => {
   assert.match(dockerfile, /test "\$\{PNPM_VERSION\}" = "11\.16\.0"/);
   assert.match(dockerfile, /corepack prepare "pnpm@\$\{PNPM_VERSION\}" --activate/);
   assert.match(dockerfile, /test "\$\(pnpm --version\)" = "\$\{PNPM_VERSION\}"/);
+  assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);
+  assert.match(dockerfile, /rm -f \/usr\/local\/bin\/npm \/usr\/local\/bin\/npx/);
+  assert.match(dockerfile, /test ! -L \/usr\/local\/bin\/npm/);
+  assert.match(dockerfile, /node --version >\/dev\/null/);
   assert.equal(dockerfile.includes(':latest'), false);
 });

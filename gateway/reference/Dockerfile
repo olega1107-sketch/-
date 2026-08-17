@@ -24,6 +24,12 @@ RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
 
 FROM ${NODE_RUNTIME_IMAGE} AS runtime
 ENV NODE_ENV=production
+RUN rm -rf /usr/local/lib/node_modules/npm && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx && \
+    test ! -e /usr/local/lib/node_modules/npm && \
+    test ! -L /usr/local/bin/npm && \
+    test ! -L /usr/local/bin/npx && \
+    node --version >/dev/null
 WORKDIR /app/gateway/reference
 COPY --from=build --chown=10001:10001 /workspace/gateway/reference/package.json ./package.json
 COPY --from=build --chown=10001:10001 /workspace/gateway/reference/node_modules/ ./node_modules/

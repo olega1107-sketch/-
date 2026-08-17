@@ -67,3 +67,29 @@ USER 10001:10001
     /approved image arguments/,
   );
 });
+
+test('Node application runtimes must remove bundled npm', () => {
+  const profile = {
+    required: [
+      'USER 10001:10001',
+      'rm -rf /usr/local/lib/node_modules/npm',
+      'rm -f /usr/local/bin/npm /usr/local/bin/npx',
+    ],
+  };
+  const hardened = `# syntax=docker/dockerfile:1.7
+FROM \${NODE_BUILD_IMAGE} AS build
+FROM \${NODE_RUNTIME_IMAGE} AS runtime
+RUN rm -rf /usr/local/lib/node_modules/npm && \\
+    rm -f /usr/local/bin/npm /usr/local/bin/npx
+USER 10001:10001
+`;
+
+  assert.doesNotThrow(() => validateDockerfileText(hardened, profile));
+  assert.throws(
+    () => validateDockerfileText(
+      hardened.replace('rm -rf /usr/local/lib/node_modules/npm', 'true'),
+      profile,
+    ),
+    /missing a required supply-chain or runtime control/,
+  );
+});

@@ -37,6 +37,12 @@ mode `load_balancer_source_ranges` сохраняет историческое �
 разрешённые source CIDR для Edge NetworkPolicy; это должны быть фактические
 target pod/canary CIDR, а не documentation ranges.
 
+Exact `public.host` резервируется до первого target render, поскольку он входит
+в Edge certificate SAN, Director redirect URI и confidential OIDC client
+registration. Резервирование строки не публикует DNS и не открывает ingress.
+Authoritative DNS record для этого host создаётся только после internal
+canaries и отдельного approval на public `LoadBalancer`.
+
 Для DOKS rollout используется schema v3. Она сохраняет все правила schema v2 и
 добавляет `networking.oidc_egress_fqdns` и
 `networking.ai_provider_egress_fqdns`. Renderer создаёт отдельные
@@ -69,8 +75,8 @@ node scripts/kubernetes-render.mjs \
 Output directory имеет mode `0700`, файлы — `0600`. Renderer выдаёт:
 
 1. `00-prerequisites.json` — Namespace, ServiceAccounts, ConfigMaps, PVC,
-   Services, NetworkPolicy, optional schema-v3 CiliumNetworkPolicy и Edge PDB.
-   Schema v2/v3 с `public.exposure=internal`
+   Services, NetworkPolicy, optional schema-v3+ CiliumNetworkPolicy и Edge PDB.
+   Schema v2/v3/v4 с `public.exposure=internal`
    создаёт Edge `ClusterIP` без load-balancer annotations; внешний
    `LoadBalancer` разрешён только отдельным утверждённым render с
    `public.exposure=load-balancer`;
@@ -180,8 +186,8 @@ bearer token и может обращаться только к generic health e
 9. Выполнить отдельный runtime `db:status`; pending/dirty/diverged блокирует rollout.
 10. Применить workloads, дождаться rollout и проверить probes/events. Internal
    Edge проверяется из разрешённого canary source CIDR по ClusterIP/service DNS.
-11. После internal canaries утвердить public host, source ranges и provider
-    annotations, повторно отрендерить schema v2 с
+11. После internal canaries утвердить публикацию уже зарезервированного public
+    host, source ranges и provider annotations, повторно отрендерить schema v4 с
     `public.exposure=load-balancer` и выполнить server-side dry-run до изменения
     Service.
 12. Выполнить `target-canary-preflight.mjs`; только после `PASS` запустить

@@ -39,6 +39,33 @@ Provisioning-role получает только необходимые DML-пр�
 Email, UPN, display name и group claims не используются для linking или RBAC.
 Устойчивая внешняя identity определяется только точными `issuer` и `sub`.
 
+### ZITADEL pilot registration sheet
+
+Для pilot используются следующие заранее зарезервированные
+несекретные значения:
+
+| ZITADEL setting | Exact value |
+| --- | --- |
+| Project name | `Dirizhor Pilot` |
+| Application name | `Director Pilot` |
+| Application type | `Web` |
+| Authentication method | `Basic` (`client_secret_basic`) |
+| Grant type | `Authorization Code` |
+| PKCE | `S256`, required by Director |
+| Redirect URI | `https://pilot.baza.fyi/api/v1/auth/oidc/callback` |
+| Post logout redirect URI | `https://pilot.baza.fyi/signed-out` |
+| Issuer | `https://dirizhor-pilot-r5zsil.eu1.zitadel.cloud` |
+| Scopes | `openid profile email` |
+| ID Token signing algorithm | `RS256` |
+
+Development mode, wildcard redirect URIs, implicit flow и password grant не
+включаются. `client_id` фиксируется после создания application.
+Client secret копируется один раз напрямую в утверждённое внешнее
+хранилище; его нельзя вставлять в этот файл, чат, shell history или
+GitHub variables. Создание project/application и генерация secret
+требуют отдельного разрешения. Регистрация URI не разрешает
+публикацию DNS или создание public LoadBalancer.
+
 ## 3. Runtime configuration
 
 ```bash

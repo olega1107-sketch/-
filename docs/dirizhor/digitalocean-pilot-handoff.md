@@ -95,6 +95,28 @@ protected local Terraform state.
 - OIDC, internal provider, external provider names/models, runtime role, secret
   material, and PKI values remain unapproved.
 
+## Reserved Public Identity
+
+- The owner-controlled domain is `baza.fyi`; NIC.UA currently delegates it to
+  the parking nameservers `parked1.uadns.com` and `parked2.uadns.com`.
+- `pilot.baza.fyi` is reserved as the exact pilot `public.host`. It is not
+  published to DigitalOcean yet and currently resolves through the registrar's
+  parking configuration. The parking address is not deployment evidence and
+  must never be copied into the Kubernetes target configuration.
+- The ZITADEL Cloud instance `dirizhor-pilot` exists in the European Union Free
+  region. Its verified exact issuer is
+  `https://dirizhor-pilot-r5zsil.eu1.zitadel.cloud`.
+- OIDC discovery is reachable at the issuer's standard
+  `/.well-known/openid-configuration` endpoint. A Director project/client,
+  client ID, callback registration, and client secret have not been created.
+- The reserved Director callback is
+  `https://pilot.baza.fyi/api/v1/auth/oidc/callback`; reserving this string does
+  not authorize public DNS, a LoadBalancer, certificate issuance, or ingress.
+- The exact non-secret ZITADEL application settings are frozen in the
+  [OIDC/SSO operational runbook](oidc-operations-runbook.md#zitadel-pilot-registration-sheet).
+  Project/application creation and secret generation still require explicit
+  approval.
+
 ## Sensitive Local Files
 
 These files must not be committed:
@@ -116,16 +138,17 @@ The DigitalOcean account droplet limit is 3. The DOKS autoscale maximum was redu
 
 Proceed in this order:
 
-1. Prepare runtime mTLS, OIDC, database, registry-pull, and signing secrets
-   outside git.
+1. Reserve the exact pilot public host and register the matching confidential
+   OIDC callback without publishing DNS. Prepare runtime mTLS, OIDC, database,
+   registry-pull, and signing secrets outside git.
 2. Approve exact OIDC discovery hosts and external AI API host, then render
-   schema-v3 digest-only Kubernetes manifests with
+   schema-v4 digest-only Kubernetes manifests with
    `public.exposure=internal`; Edge must remain `ClusterIP` and public provider
    egress must use exact Cilium FQDN rules.
 3. Run all four server-side dry-runs against DOKS and retain their output.
 4. Obtain explicit deployment approval, then apply prerequisites, migrations,
    runtime privilege checks, and workloads in the documented order.
-5. Complete internal canaries before selecting the pilot DNS name or creating a
-   public `LoadBalancer`.
+5. Complete internal canaries before publishing the reserved pilot DNS name or
+   creating a public `LoadBalancer`.
 6. Complete backup/restore verification, monitoring, and
    alerting before enabling ingress.

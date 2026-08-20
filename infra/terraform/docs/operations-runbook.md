@@ -20,16 +20,18 @@ Publish OCI images through the protected manual workflow
 `.github/workflows/pilot-oci-release.yml`. Do not copy the DigitalOcean token
 into shell history or a repository-level GitHub secret.
 
-Create a Kubernetes namespace:
+Verify the pre-created application namespace and its restricted Pod Security
+labels. Creating or replacing it still requires explicit approval:
 
 ```bash
-kubectl create namespace dirizhor-pilot
+kubectl get namespace dirizhor-pilot --show-labels
 ```
 
-Render schema-v2 digest-only workloads with `public.exposure=internal` only
-after the OCI evidence is `PASS`. The resulting Edge Service must be
-`ClusterIP`; a `LoadBalancer` before internal canaries is stop-ship. Install
-ingress and certificates only after internal canaries pass:
+Render schema-v3 digest-only workloads with `public.exposure=internal` only
+after the OCI evidence is `PASS`. DOKS must accept the exact-FQDN
+`CiliumNetworkPolicy` resources in server-side dry-run. The resulting Edge
+Service must be `ClusterIP`; a `LoadBalancer` before internal canaries is
+stop-ship. Install ingress and certificates only after internal canaries pass:
 
 ```bash
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx

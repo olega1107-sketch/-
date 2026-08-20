@@ -40,9 +40,9 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
   multi-platform build/push, registry digest, SBOM, scan, signing и release evidence;
 - `scripts/kubernetes-render.mjs`, `kubernetes-target-config.example.json` и
   `kubernetes-target-runbook.md` — строгий target renderer с schema-v2
-  internal-first `ClusterIP` exposure, legacy schema-v1 `LoadBalancer`,
-  external secret/PKI inventory и последовательностью
-  migration-before-workloads;
+  internal-first `ClusterIP` exposure, schema-v3 exact-FQDN egress для Cilium,
+  legacy schema-v1 `LoadBalancer`, external secret/PKI inventory и
+  последовательностью migration-before-workloads;
 - `scripts/target-canary.mjs`, `target-canary-config.example.json` и
   `target-canary-runbook.md` — fail-closed live DNS/TLS, edge, OIDC, two-way
   mTLS+short-lived-workload-token и exact-session-scope evidence runner;

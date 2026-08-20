@@ -78,7 +78,7 @@ export function validateKubernetesTargetConfig(config) {
     'images', 'replicas', 'public', 'networking', 'postgresql', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
     'secrets', 'storage', 'resources',
   ], 'config');
-  if (![1, 2].includes(config.schema_version)) throw new Error('Unsupported Kubernetes target schema.');
+  if (![1, 2, 3].includes(config.schema_version)) throw new Error('Unsupported Kubernetes target schema.');
   if (!executionIdPattern.test(config.deployment_id) || config.deployment_id.startsWith('replace-')) {
     throw new Error('A non-placeholder deployment ID is required.');
   }
@@ -90,7 +90,7 @@ export function validateKubernetesTargetConfig(config) {
   validateImages(normalized.images);
   validateReplicas(normalized.replicas);
   validatePublic(normalized.public, normalized.schema_version);
-  validateNetworking(normalized.networking);
+  validateNetworking(normalized.networking, normalized.schema_version);
   validatePostgresql(normalized.postgresql);
   validateOidc(normalized.oidc, normalized.public.host);
   validateWorkloadIdentity(normalized.workload_identity);
@@ -117,6 +117,7 @@ export function buildKubernetesBundles(config) {
     internalService(namespace, 'gateway', 8443),
     edgeService(config),
     ...networkPolicies(config),
+    ...ciliumFqdnPolicies(config),
     edgeDisruptionBudget(namespace),
   ];
   const migration = [migrationJob(config)];
@@ -211,6 +212,22 @@ export function validateRenderedResources(resources, config) {
   }
   for (const name of ['default-deny', 'allow-dns', 'edge', 'director', 'gateway', 'migration', 'runtime-privilege']) {
     findResource(resources, 'NetworkPolicy', `dirizhor-${name}`);
+  }
+  for (const [name, component, fqdns] of [
+    ['director-oidc-fqdn-egress', 'director', config.networking.oidc_egress_fqdns],
+    ['gateway-ai-fqdn-egress', 'gateway', config.networking.ai_provider_egress_fqdns],
+  ]) {
+    if (fqdns.length === 0) continue;
+    const policy = findResource(resources, 'CiliumNetworkPolicy', `dirizhor-${name}`);
+    if (
+      JSON.stringify(policy.spec.endpointSelector?.matchLabels) !== JSON.stringify(selector(component)) ||
+      JSON.stringify(policy.spec.egress?.[0]?.toFQDNs) !== JSON.stringify(fqdns.map((matchName) => ({ matchName }))) ||
+      JSON.stringify(policy.spec.egress?.[0]?.toPorts) !== JSON.stringify([{
+        ports: [{ port: '443', protocol: 'TCP' }],
+      }])
+    ) {
+      throw new Error(`Cilium FQDN policy ${name} is invalid.`);
+    }
   }
   return { status: 'ok', resource_count: resources.length };
 }
@@ -601,6 +618,22 @@ function networkPolicies(config) {
   ];
 }
 
+function ciliumFqdnPolicies(config) {
+  const namespace = config.namespace;
+  return [
+    ['director-oidc-fqdn-egress', 'director', config.networking.oidc_egress_fqdns],
+    ['gateway-ai-fqdn-egress', 'gateway', config.networking.ai_provider_egress_fqdns],
+  ].flatMap(([name, component, fqdns]) => fqdns.length === 0 ? [] : [
+    namespacedResource('cilium.io/v2', 'CiliumNetworkPolicy', namespace, `dirizhor-${name}`, {
+      endpointSelector: { matchLabels: selector(component) },
+      egress: [{
+        toFQDNs: fqdns.map((matchName) => ({ matchName })),
+        toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+      }],
+    }, labels('network')),
+  ]);
+}
+
 function edgeEnvironment(config, names) {
   return {
     DIRECTOR_PUBLIC_HOST: config.public.host,
@@ -752,18 +785,40 @@ function validatePublic(publicConfig, schemaVersion) {
   }
 }
 
-function validateNetworking(networking) {
+function validateNetworking(networking, schemaVersion) {
   assertObject(networking, 'networking');
-  assertExactKeys(networking, [
+  const cidrKeys = [
     'cluster_domain', 'dns_namespace', 'trusted_proxy_cidrs', 'postgresql_cidrs',
     'postgresql_port', 'oidc_egress_cidrs', 'internal_provider_egress_cidrs',
     'ai_provider_egress_cidrs',
-  ], 'networking');
+  ];
+  if (schemaVersion < 3) {
+    assertExactKeys(networking, cidrKeys, 'networking');
+    networking.oidc_egress_fqdns = [];
+    networking.ai_provider_egress_fqdns = [];
+  } else {
+    assertExactKeys(networking, [
+      ...cidrKeys,
+      'oidc_egress_fqdns',
+      'ai_provider_egress_fqdns',
+    ], 'networking');
+  }
   if (!hostname(networking.cluster_domain) || !dnsLabelPattern.test(networking.dns_namespace)) {
     throw new Error('Cluster DNS configuration is invalid.');
   }
-  for (const key of ['trusted_proxy_cidrs', 'postgresql_cidrs', 'oidc_egress_cidrs', 'internal_provider_egress_cidrs', 'ai_provider_egress_cidrs']) {
+  for (const key of ['trusted_proxy_cidrs', 'postgresql_cidrs', 'internal_provider_egress_cidrs']) {
     validateCidrs(networking[key], key);
+  }
+  validateFqdns(networking.oidc_egress_fqdns, 'oidc_egress_fqdns');
+  validateFqdns(networking.ai_provider_egress_fqdns, 'ai_provider_egress_fqdns');
+  for (const [cidrKey, fqdnKey] of [
+    ['oidc_egress_cidrs', 'oidc_egress_fqdns'],
+    ['ai_provider_egress_cidrs', 'ai_provider_egress_fqdns'],
+  ]) {
+    validateCidrs(networking[cidrKey], cidrKey, { allowEmpty: schemaVersion >= 3 });
+    if (networking[cidrKey].length === 0 && networking[fqdnKey].length === 0) {
+      throw new Error(`${cidrKey} or ${fqdnKey} must allow the provider endpoint.`);
+    }
   }
   if (!Number.isSafeInteger(networking.postgresql_port) || networking.postgresql_port < 1 || networking.postgresql_port > 65_535) {
     throw new Error('PostgreSQL port is invalid.');
@@ -1071,9 +1126,20 @@ function findResource(resources, kind, name) {
   return resource;
 }
 
-function validateCidrs(values, label) {
-  if (!Array.isArray(values) || values.length === 0 || new Set(values).size !== values.length || values.some((cidr) => !validCidr(cidr))) {
+function validateCidrs(values, label, { allowEmpty = false } = {}) {
+  if (!Array.isArray(values) || (!allowEmpty && values.length === 0) || new Set(values).size !== values.length || values.some((cidr) => !validCidr(cidr))) {
     throw new Error(`${label} must contain unique IPv4 CIDRs.`);
+  }
+}
+
+function validateFqdns(values, label) {
+  if (
+    !Array.isArray(values) ||
+    values.length > 50 ||
+    new Set(values).size !== values.length ||
+    values.some((value) => !hostname(value) || !value.includes('.') || isIP(value) !== 0)
+  ) {
+    throw new Error(`${label} must contain unique exact DNS names without wildcards.`);
   }
 }
 

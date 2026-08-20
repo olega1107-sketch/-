@@ -65,12 +65,14 @@ protected local Terraform state.
   - Director: `registry.digitalocean.com/dirizherpilotregistry/director@sha256:0433a40cc7fc34021b94a1f44562f349ef634f7d4e0b0c1539b65ea8adadad9e`
   - Gateway: `registry.digitalocean.com/dirizherpilotregistry/gateway@sha256:8593ed918fd57d9b3424be552277b675d8fed51ab6f8d9674931591bebed03e8`
   - Edge: `registry.digitalocean.com/dirizherpilotregistry/edge@sha256:ea5e542b1ae9638e67090656031b06a24c146d744b539db45b9c121dc0b754e9`
-- No application namespace or application pods have been deployed.
+- The restricted `dirizhor-pilot` namespace exists. No application pods, Jobs,
+  PVCs, Services, ConfigMaps, NetworkPolicies, or PodDisruptionBudgets have been
+  deployed. DigitalOcean automatically copied the registry pull Secret into
+  the namespace; its value was not inspected.
 
 ## Kubernetes Structural Preflight
 
-- On 2026-08-20 both DOKS workers were `Ready` on Kubernetes `v1.36.3`; the
-  application namespace did not exist.
+- On 2026-08-20 both DOKS workers were `Ready` on Kubernetes `v1.36.3`.
 - A schema-v2 internal render used the retained OCI image digests, DOKS
   `do-block-storage-retain`, the current Cilium pod CIDRs, and the private
   PostgreSQL address. Its render digest was
@@ -78,10 +80,16 @@ protected local Terraform state.
 - DOKS server-side dry-run accepted 24 namespaced resources in the existing
   `default` namespace: prerequisites, migration, runtime privilege, and all
   three workloads. No resource was persisted.
-- This was structural preflight only. Exact target-namespace dry-run remains
-  blocked until the empty `dirizhor-pilot` namespace is explicitly approved
-  and created. OIDC, internal provider, external provider egress, runtime role,
-  secret material, and PKI values also remain unapproved.
+- After explicit approval, the empty `dirizhor-pilot` namespace was created
+  with restricted Pod Security labels. Exact server-side dry-run accepted all
+  24 namespaced schema-v2 resources without persisting any of them.
+- DOKS exposes `cilium.io/v2` and accepted both schema-v3 exact-FQDN
+  `CiliumNetworkPolicy` resources in server-side dry-run. The schema-v3 test
+  render digest was
+  `sha256:7eee924d5bdda2d803fcc3815552f24fa9afae0fb9253f3f2c8b8d1df35fe5e1`;
+  it used `.invalid` test FQDNs and is not deployment evidence.
+- OIDC, internal provider, external provider names/models, runtime role, secret
+  material, and PKI values remain unapproved.
 
 ## Sensitive Local Files
 
@@ -106,8 +114,10 @@ Proceed in this order:
 
 1. Prepare runtime mTLS, OIDC, database, registry-pull, and signing secrets
    outside git.
-2. Render schema-v2 digest-only Kubernetes manifests with
-   `public.exposure=internal`; Edge must remain `ClusterIP`.
+2. Approve exact OIDC discovery hosts and external AI API host, then render
+   schema-v3 digest-only Kubernetes manifests with
+   `public.exposure=internal`; Edge must remain `ClusterIP` and public provider
+   egress must use exact Cilium FQDN rules.
 3. Run all four server-side dry-runs against DOKS and retain their output.
 4. Obtain explicit deployment approval, then apply prerequisites, migrations,
    runtime privilege checks, and workloads in the documented order.

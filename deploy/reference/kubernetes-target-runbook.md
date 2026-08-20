@@ -1,8 +1,9 @@
 # Kubernetes target deployment v1
 
 Статус: production-oriented pilot profile. Renderer создаёт проверяемые
-Kubernetes JSON manifests, но не доказывает конкретный cluster, CNI, CSI,
-LoadBalancer, secret manager или managed PostgreSQL provider.
+Kubernetes JSON manifests, но сам по себе не доказывает конкретный cluster,
+CSI, LoadBalancer, secret manager или managed PostgreSQL provider. Schema v3
+дополнительно требует Cilium `cilium.io/v2` и проверяется на target API server.
 
 ## 1. Граница профиля
 
@@ -29,12 +30,21 @@ rollout создаётся утверждённая копия с digest referen
 `oci-release-evidence.json`:
 
 Schema v1 сохраняется только для совместимости и всегда означает внешний
-`LoadBalancer`. Для нового rollout обязательна schema v2: значение
+`LoadBalancer`. Schema v2 добавляет internal-first exposure: значение
 `public.exposure=internal` используется до завершения internal canaries, а
 `public.exposure=load-balancer` — только после отдельного approval. В internal
 mode `load_balancer_source_ranges` сохраняет историческое имя поля, но задаёт
 разрешённые source CIDR для Edge NetworkPolicy; это должны быть фактические
 target pod/canary CIDR, а не documentation ranges.
+
+Для DOKS rollout используется schema v3. Она сохраняет все правила schema v2 и
+добавляет `networking.oidc_egress_fqdns` и
+`networking.ai_provider_egress_fqdns`. Renderer создаёт отдельные
+`CiliumNetworkPolicy` с exact `matchName` и TCP/443 для Director и Gateway.
+Wildcard и `matchPattern` запрещены. Для каждого внешнего направления должен
+быть задан хотя бы один CIDR или FQDN; публичные endpoints с изменяемыми IP
+используют FQDN, а не зафиксированный снимок DNS-адресов. До render оператор
+сверяет exact имена с OIDC discovery и утверждённым AI API origin.
 
 ```bash
 cd deploy/reference
@@ -46,7 +56,8 @@ node scripts/kubernetes-render.mjs \
 Output directory имеет mode `0700`, файлы — `0600`. Renderer выдаёт:
 
 1. `00-prerequisites.json` — Namespace, ServiceAccounts, ConfigMaps, PVC,
-   Services, NetworkPolicy и Edge PDB. Schema v2 с `public.exposure=internal`
+   Services, NetworkPolicy, optional schema-v3 CiliumNetworkPolicy и Edge PDB.
+   Schema v2/v3 с `public.exposure=internal`
    создаёт Edge `ClusterIP` без load-balancer annotations; внешний
    `LoadBalancer` разрешён только отдельным утверждённым render с
    `public.exposure=load-balancer`;
@@ -67,6 +78,9 @@ kubectl apply --dry-run=server -f 20-workloads.json
 
 Client-only dry-run недостаточен: он не доказывает Pod Security Admission,
 provider admission policies, StorageClass или Service annotations.
+Schema v3 дополнительно требует, чтобы target API server принял оба
+`CiliumNetworkPolicy`; отсутствие CRD или отклонение `toFQDNs` является
+stop-ship.
 
 Если target namespace ещё не существует, API server не может проверить
 namespaced resources из того же bundle, где объявлен Namespace. До approval на

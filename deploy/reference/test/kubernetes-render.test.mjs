@@ -44,6 +44,31 @@ test('target config rejects mutable images, unsafe exposure, and unsupported sca
     () => validateKubernetesTargetConfig({ ...config, postgresql: { ...config.postgresql, runtime_role: 'invalid role' } }),
     /runtime role is invalid/,
   );
+  assert.throws(
+    () => validateKubernetesTargetConfig({
+      ...config,
+      networking: { ...config.networking, oidc_egress_fqdns: ['*.example.test'] },
+    }),
+    /exact DNS names without wildcards/,
+  );
+  assert.throws(
+    () => validateKubernetesTargetConfig({
+      ...config,
+      networking: { ...config.networking, ai_provider_egress_fqdns: ['localhost'] },
+    }),
+    /exact DNS names without wildcards/,
+  );
+  assert.throws(
+    () => validateKubernetesTargetConfig({
+      ...config,
+      networking: {
+        ...config.networking,
+        oidc_egress_cidrs: [],
+        oidc_egress_fqdns: [],
+      },
+    }),
+    /must allow the provider endpoint/,
+  );
 });
 
 test('renderer writes ordered private bundles without Secret or PostgreSQL workloads', async () => {
@@ -60,9 +85,9 @@ test('renderer writes ordered private bundles without Secret or PostgreSQL workl
       '15-runtime-privilege-job.json',
       '20-workloads.json',
     ]);
-    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 25);
+    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 27);
     assert.equal(evidence.secret_resources_included, false);
-    assert.equal(evidence.target_schema_version, 2);
+    assert.equal(evidence.target_schema_version, 3);
     assert.equal(evidence.exposure, 'internal');
     assert.match(evidence.render_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(fixture.output)).mode & 0o777, 0o700);
@@ -91,6 +116,17 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
   assert.equal(edgeService.spec.externalTrafficPolicy, undefined);
   assert.equal(edgeService.spec.loadBalancerSourceRanges, undefined);
   assert.equal(edgeService.metadata.annotations, undefined);
+  const directorFqdnPolicy = resources.find(
+    (resource) => resource.kind === 'CiliumNetworkPolicy' && resource.metadata.name === 'dirizhor-director-oidc-fqdn-egress',
+  );
+  assert.deepEqual(directorFqdnPolicy.spec.egress[0].toFQDNs, [
+    { matchName: 'idp.example.test' },
+    { matchName: 'tokens.example.test' },
+  ]);
+  const gatewayFqdnPolicy = resources.find(
+    (resource) => resource.kind === 'CiliumNetworkPolicy' && resource.metadata.name === 'dirizhor-gateway-ai-fqdn-egress',
+  );
+  assert.deepEqual(gatewayFqdnPolicy.spec.egress[0].toFQDNs, [{ matchName: 'api.example.test' }]);
   const directorConfig = resources.find((resource) => resource.kind === 'ConfigMap' && resource.metadata.name === 'dirizhor-director-config');
   assert.match(directorConfig.data.GATEWAY_BASE_URL, /\.svc\.corp\.internal:8443$/);
   assert.equal(directorConfig.data.DIRECTOR_WORKLOAD_SIGNING_KEY_ID, 'director-2026-08-a');
@@ -125,9 +161,7 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
 });
 
 test('legacy schema keeps the explicit load balancer contract', () => {
-  const config = validConfig();
-  config.schema_version = 1;
-  delete config.public.exposure;
+  const config = cidrSchemaConfig(1);
   config.public.load_balancer_annotations = {
     'service.beta.kubernetes.io/example-class': 'approved',
   };
@@ -143,7 +177,7 @@ test('legacy schema keeps the explicit load balancer contract', () => {
 });
 
 test('schema v2 supports an explicitly selected load balancer exposure', () => {
-  const config = validConfig();
+  const config = cidrSchemaConfig(2);
   config.public.exposure = 'load-balancer';
   config.public.load_balancer_annotations = {
     'service.beta.kubernetes.io/example-class': 'approved',
@@ -192,6 +226,15 @@ test('manifest validator blocks root, mutable image, embedded Secret, and migrat
         job(resources, 'runtime-privilege').spec.template.spec.containers[0].command = ['pnpm', 'db:runtime-privileges'];
       },
     },
+    {
+      pattern: /Cilium FQDN policy/,
+      mutate(resources) {
+        const policy = resources.find(
+          (resource) => resource.kind === 'CiliumNetworkPolicy' && resource.metadata.name === 'dirizhor-director-oidc-fqdn-egress',
+        );
+        policy.spec.egress[0].toFQDNs = [{ matchPattern: '*' }];
+      },
+    },
   ];
   for (const fixture of cases) {
     const resources = structuredClone(allResources(buildKubernetesBundles(config)));
@@ -227,7 +270,7 @@ test('render directory must be new and outside the workspace', async () => {
 
 function validConfig() {
   return {
-    schema_version: 2,
+    schema_version: 3,
     deployment_id: 'pilot-2026-08-11-01',
     namespace: 'dirizhor-pilot',
     kubernetes_version: 'v1.34',
@@ -250,9 +293,11 @@ function validConfig() {
       trusted_proxy_cidrs: ['10.70.0.0/24'],
       postgresql_cidrs: ['192.0.2.10/32'],
       postgresql_port: 5432,
-      oidc_egress_cidrs: ['192.0.2.20/32'],
+      oidc_egress_cidrs: [],
+      oidc_egress_fqdns: ['idp.example.test', 'tokens.example.test'],
       internal_provider_egress_cidrs: ['10.80.0.10/32'],
-      ai_provider_egress_cidrs: ['192.0.2.30/32'],
+      ai_provider_egress_cidrs: [],
+      ai_provider_egress_fqdns: ['api.example.test'],
     },
     postgresql: {
       database_name: 'dirizhor_pilot',
@@ -318,6 +363,17 @@ function validConfig() {
       migration: resource('100m', '256Mi', '500m', '512Mi'),
     },
   };
+}
+
+function cidrSchemaConfig(schemaVersion) {
+  const config = validConfig();
+  config.schema_version = schemaVersion;
+  config.networking.oidc_egress_cidrs = ['192.0.2.20/32'];
+  config.networking.ai_provider_egress_cidrs = ['192.0.2.30/32'];
+  delete config.networking.oidc_egress_fqdns;
+  delete config.networking.ai_provider_egress_fqdns;
+  if (schemaVersion === 1) delete config.public.exposure;
+  return config;
 }
 
 function resource(requestCpu, requestMemory, limitCpu, limitMemory) {

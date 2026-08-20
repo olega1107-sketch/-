@@ -67,6 +67,22 @@ protected local Terraform state.
   - Edge: `registry.digitalocean.com/dirizherpilotregistry/edge@sha256:ea5e542b1ae9638e67090656031b06a24c146d744b539db45b9c121dc0b754e9`
 - No application namespace or application pods have been deployed.
 
+## Kubernetes Structural Preflight
+
+- On 2026-08-20 both DOKS workers were `Ready` on Kubernetes `v1.36.3`; the
+  application namespace did not exist.
+- A schema-v2 internal render used the retained OCI image digests, DOKS
+  `do-block-storage-retain`, the current Cilium pod CIDRs, and the private
+  PostgreSQL address. Its render digest was
+  `sha256:fc7be0638ea6f40c3cf24b96dbd96066bb03630cbcb3bd226d8e2230273d0708`.
+- DOKS server-side dry-run accepted 24 namespaced resources in the existing
+  `default` namespace: prerequisites, migration, runtime privilege, and all
+  three workloads. No resource was persisted.
+- This was structural preflight only. Exact target-namespace dry-run remains
+  blocked until the empty `dirizhor-pilot` namespace is explicitly approved
+  and created. OIDC, internal provider, external provider egress, runtime role,
+  secret material, and PKI values also remain unapproved.
+
 ## Sensitive Local Files
 
 These files must not be committed:

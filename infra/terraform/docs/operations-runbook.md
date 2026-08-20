@@ -23,7 +23,7 @@ into shell history or a repository-level GitHub secret.
 Create a Kubernetes namespace:
 
 ```bash
-kubectl create namespace dirizher-pilot
+kubectl create namespace dirizhor-pilot
 ```
 
 Render schema-v2 digest-only workloads with `public.exposure=internal` only

@@ -68,6 +68,17 @@ kubectl apply --dry-run=server -f 20-workloads.json
 Client-only dry-run недостаточен: он не доказывает Pod Security Admission,
 provider admission policies, StorageClass или Service annotations.
 
+Если target namespace ещё не существует, API server не может проверить
+namespaced resources из того же bundle, где объявлен Namespace. До approval на
+создание пустого target namespace допускается только structural dry-run:
+создать временную копию утверждённого config с `namespace` существующего
+validation namespace, отрендерить её в новый каталог и выполнить четыре
+server-side dry-run. Такой результат проверяет API schema/admission, но не
+namespace-specific policy и не является deployment evidence. Временные
+manifests запрещено применять. После отдельного approval и создания пустого
+target namespace все четыре dry-run обязательно повторяются без подмены
+namespace.
+
 ## 3. External secrets
 
 Secrets создаёт только утверждённый external secret controller или оператор.
@@ -125,29 +136,32 @@ bearer token и может обращаться только к generic health e
 ## 5. Apply order
 
 1. Сверить config image digests с OCI release evidence и target cluster minor.
-2. Выполнить четыре server-side dry-run.
-3. Для первого internal rollout проверить `public.exposure=internal`, применить
+2. Если target namespace отсутствует, выполнить structural dry-run в
+   существующем validation namespace и сохранить его только как preflight.
+3. Получить отдельный approval, создать пустой target namespace и выполнить
+   четыре exact server-side dry-run в нём.
+4. Для первого internal rollout проверить `public.exposure=internal`, применить
    prerequisites и дождаться Bound PVC. `LoadBalancer` на этом этапе является
    stop-ship; внешний service создаётся только после internal canaries отдельным
    утверждённым schema-v2 render.
-4. Синхронизировать external secrets и проверить только object/key presence.
-5. Проверить certificates, PostgreSQL TLS и свежий recovery point.
-6. Применить migration Job, дождаться `condition=complete` и сохранить logs.
-7. Применить runtime privilege Job, дождаться `condition=complete`, сохранить
+5. Синхронизировать external secrets и проверить только object/key presence.
+6. Проверить certificates, PostgreSQL TLS и свежий recovery point.
+7. Применить migration Job, дождаться `condition=complete` и сохранить logs.
+8. Применить runtime privilege Job, дождаться `condition=complete`, сохранить
    JSON report и проверить `status=PASS`; любой другой исход блокирует rollout.
-8. Выполнить отдельный runtime `db:status`; pending/dirty/diverged блокирует rollout.
-9. Применить workloads, дождаться rollout и проверить probes/events. Internal
+9. Выполнить отдельный runtime `db:status`; pending/dirty/diverged блокирует rollout.
+10. Применить workloads, дождаться rollout и проверить probes/events. Internal
    Edge проверяется из разрешённого canary source CIDR по ClusterIP/service DNS.
-10. После internal canaries утвердить public host, source ranges и provider
+11. После internal canaries утвердить public host, source ranges и provider
     annotations, повторно отрендерить schema v2 с
     `public.exposure=load-balancer` и выполнить server-side dry-run до изменения
     Service.
-11. Выполнить `target-canary-preflight.mjs`; только после `PASS` запустить
+12. Выполнить `target-canary-preflight.mjs`; только после `PASS` запустить
    `target-canary.mjs` для external Host/TLS, OIDC discovery/start,
    mTLS+short-lived-workload-token и exact project scope, затем завершить browser MFA и выполнить
    отдельный `application-canary.mjs`. Его internal route должен соответствовать
    реальному internal adapter/deployment, а не переклассифицированному cloud route.
-12. В отдельном change window выполнить PostgreSQL startup-guard harness и
+13. В отдельном change window выполнить PostgreSQL startup-guard harness и
     `application-failure-canary.mjs` по его
     [runbook](application-failure-canary-runbook.md).
 

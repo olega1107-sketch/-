@@ -26,8 +26,10 @@ Create a Kubernetes namespace:
 kubectl create namespace dirizher-pilot
 ```
 
-Render and deploy digest-only internal workloads only after the OCI evidence is
-`PASS`. Install ingress and certificates only after internal canaries pass:
+Render schema-v2 digest-only workloads with `public.exposure=internal` only
+after the OCI evidence is `PASS`. The resulting Edge Service must be
+`ClusterIP`; a `LoadBalancer` before internal canaries is stop-ship. Install
+ingress and certificates only after internal canaries pass:
 
 ```bash
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx

@@ -29,6 +29,10 @@ test('target config rejects mutable images, unsafe exposure, and unsupported sca
     /source ranges must be explicit/,
   );
   assert.throws(
+    () => validateKubernetesTargetConfig({ ...config, public: { ...config.public, load_balancer_annotations: { unsafe: 'annotation' } } }),
+    /must not include load balancer annotations/,
+  );
+  assert.throws(
     () => validateKubernetesTargetConfig({ ...config, agent_routes: config.agent_routes.map((route, index) => index === 0 ? { ...route, provider: 'fixture' } : route) }),
     /Agent route is invalid/,
   );
@@ -58,6 +62,8 @@ test('renderer writes ordered private bundles without Secret or PostgreSQL workl
     ]);
     assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 25);
     assert.equal(evidence.secret_resources_included, false);
+    assert.equal(evidence.target_schema_version, 2);
+    assert.equal(evidence.exposure, 'internal');
     assert.match(evidence.render_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(fixture.output)).mode & 0o777, 0o700);
     for (const file of [...evidence.apply_order, 'render-evidence.json']) {
@@ -80,6 +86,11 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
 
   const serviceAccounts = resources.filter((resource) => resource.kind === 'ServiceAccount');
   assert.ok(serviceAccounts.every((account) => account.automountServiceAccountToken === false && account.spec === undefined));
+  const edgeService = resources.find((resource) => resource.kind === 'Service' && resource.metadata.name === 'dirizhor-edge');
+  assert.equal(edgeService.spec.type, 'ClusterIP');
+  assert.equal(edgeService.spec.externalTrafficPolicy, undefined);
+  assert.equal(edgeService.spec.loadBalancerSourceRanges, undefined);
+  assert.equal(edgeService.metadata.annotations, undefined);
   const directorConfig = resources.find((resource) => resource.kind === 'ConfigMap' && resource.metadata.name === 'dirizhor-director-config');
   assert.match(directorConfig.data.GATEWAY_BASE_URL, /\.svc\.corp\.internal:8443$/);
   assert.equal(directorConfig.data.DIRECTOR_WORKLOAD_SIGNING_KEY_ID, 'director-2026-08-a');
@@ -111,6 +122,41 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
       ['DIRECTOR_RUNTIME_PRIVILEGE_EXPECT_ROLE', config.postgresql.runtime_role],
     ],
   );
+});
+
+test('legacy schema keeps the explicit load balancer contract', () => {
+  const config = validConfig();
+  config.schema_version = 1;
+  delete config.public.exposure;
+  config.public.load_balancer_annotations = {
+    'service.beta.kubernetes.io/example-class': 'approved',
+  };
+
+  const normalized = validateKubernetesTargetConfig(config);
+  assert.equal(normalized.public.exposure, 'load-balancer');
+  const resources = allResources(buildKubernetesBundles(normalized));
+  assert.equal(validateRenderedResources(resources, normalized).status, 'ok');
+  const edgeService = resources.find((resource) => resource.kind === 'Service' && resource.metadata.name === 'dirizhor-edge');
+  assert.equal(edgeService.spec.type, 'LoadBalancer');
+  assert.deepEqual(edgeService.spec.loadBalancerSourceRanges, config.public.load_balancer_source_ranges);
+  assert.deepEqual(edgeService.metadata.annotations, config.public.load_balancer_annotations);
+});
+
+test('schema v2 supports an explicitly selected load balancer exposure', () => {
+  const config = validConfig();
+  config.public.exposure = 'load-balancer';
+  config.public.load_balancer_annotations = {
+    'service.beta.kubernetes.io/example-class': 'approved',
+  };
+
+  const normalized = validateKubernetesTargetConfig(config);
+  assert.equal(normalized.public.exposure, 'load-balancer');
+  const resources = allResources(buildKubernetesBundles(normalized));
+  assert.equal(validateRenderedResources(resources, normalized).status, 'ok');
+  const edgeService = resources.find((resource) => resource.kind === 'Service' && resource.metadata.name === 'dirizhor-edge');
+  assert.equal(edgeService.spec.type, 'LoadBalancer');
+  assert.deepEqual(edgeService.spec.loadBalancerSourceRanges, config.public.load_balancer_source_ranges);
+  assert.deepEqual(edgeService.metadata.annotations, config.public.load_balancer_annotations);
 });
 
 test('manifest validator blocks root, mutable image, embedded Secret, and migration drift', () => {
@@ -181,7 +227,7 @@ test('render directory must be new and outside the workspace', async () => {
 
 function validConfig() {
   return {
-    schema_version: 1,
+    schema_version: 2,
     deployment_id: 'pilot-2026-08-11-01',
     namespace: 'dirizhor-pilot',
     kubernetes_version: 'v1.34',
@@ -192,10 +238,11 @@ function validConfig() {
     },
     replicas: { edge: 2, director: 1, gateway: 1 },
     public: {
+      exposure: 'internal',
       host: 'dirizhor.example.invalid',
       max_body_size: '26m',
       load_balancer_source_ranges: ['198.51.100.0/24'],
-      load_balancer_annotations: { 'service.beta.kubernetes.io/example-class': 'approved' },
+      load_balancer_annotations: {},
     },
     networking: {
       cluster_domain: 'cluster.local',

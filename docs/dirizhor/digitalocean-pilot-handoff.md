@@ -1,6 +1,6 @@
 # DigitalOcean Pilot Handoff
 
-Date: 2026-08-17
+Date: 2026-08-20
 
 The DigitalOcean pilot environment for Dirizhor is represented by the Terraform
 configuration under `infra/terraform`. Provider resource IDs and private service
@@ -53,14 +53,18 @@ protected local Terraform state.
 
 ## OCI Delivery Status
 
-- `.github/workflows/pilot-oci-release.yml` is prepared for a protected manual
-  release from the GitHub environment `digitalocean-pilot`.
-- The workflow pins Docker, Buildx, Syft, Trivy, Cosign, Node, pnpm, and both
-  runtime base images; verifies downloaded tool checksums; scans `HIGH` and
-  `CRITICAL` vulnerabilities; and performs keyless Sigstore signing.
-- The workflow has passed repository tests, YAML parsing, and `actionlint`.
-- The registry currently contains no application images.
-- The OCI workflow has not been pushed or executed and no OCI evidence exists.
+- Protected manual release `ARCH-V1.16-OCI-05` completed successfully from
+  exact commit `6cfd69421ebc8fc0fb07dcf6fd2eae0f1356bfd4` in GitHub Actions run
+  `32345638852`.
+- Retained artifact `pilot-oci-evidence-32345638852-1` has digest
+  `sha256:b5d2ac51cac0b70f9522afc134197af7bc1fc2e402fb71c00a13470a835b599e`.
+- Node build, Director, Gateway, and Edge Trivy reports contain zero `HIGH` or
+  `CRITICAL` findings. Director, Gateway, and Edge signatures and CycloneDX
+  attestations were verified.
+- Deploy only these immutable application references:
+  - Director: `registry.digitalocean.com/dirizherpilotregistry/director@sha256:0433a40cc7fc34021b94a1f44562f349ef634f7d4e0b0c1539b65ea8adadad9e`
+  - Gateway: `registry.digitalocean.com/dirizherpilotregistry/gateway@sha256:8593ed918fd57d9b3424be552277b675d8fed51ab6f8d9674931591bebed03e8`
+  - Edge: `registry.digitalocean.com/dirizherpilotregistry/edge@sha256:ea5e542b1ae9638e67090656031b06a24c146d744b539db45b9c121dc0b754e9`
 - No application namespace or application pods have been deployed.
 
 ## Sensitive Local Files
@@ -84,13 +88,14 @@ The DigitalOcean account droplet limit is 3. The DOKS autoscale maximum was redu
 
 Proceed in this order:
 
-1. Review and publish the branch containing the protected OCI workflow.
-2. Create the GitHub environment `digitalocean-pilot`, require manual approval,
-   and add a dedicated short-lived registry-write token as the environment
-   secret `DIGITALOCEAN_ACCESS_TOKEN`.
-3. Manually run the OCI workflow and retain its evidence artifact.
-4. Select the pilot DNS name and configure OIDC callback URLs.
-5. Prepare runtime mTLS, OIDC, database, and signing secrets outside git.
-6. Render digest-only Kubernetes manifests and deploy without public ingress.
-7. Complete internal canaries, backup/restore verification, monitoring, and
+1. Prepare runtime mTLS, OIDC, database, registry-pull, and signing secrets
+   outside git.
+2. Render schema-v2 digest-only Kubernetes manifests with
+   `public.exposure=internal`; Edge must remain `ClusterIP`.
+3. Run all four server-side dry-runs against DOKS and retain their output.
+4. Obtain explicit deployment approval, then apply prerequisites, migrations,
+   runtime privilege checks, and workloads in the documented order.
+5. Complete internal canaries before selecting the pilot DNS name or creating a
+   public `LoadBalancer`.
+6. Complete backup/restore verification, monitoring, and
    alerting before enabling ingress.

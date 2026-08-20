@@ -39,8 +39,10 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
 - `scripts/oci-release.mjs` и `oci-release-config.example.json` — fail-closed
   multi-platform build/push, registry digest, SBOM, scan, signing и release evidence;
 - `scripts/kubernetes-render.mjs`, `kubernetes-target-config.example.json` и
-  `kubernetes-target-runbook.md` — строгий target renderer, external secret/PKI
-  inventory и последовательность migration-before-workloads;
+  `kubernetes-target-runbook.md` — строгий target renderer с schema-v2
+  internal-first `ClusterIP` exposure, legacy schema-v1 `LoadBalancer`,
+  external secret/PKI inventory и последовательностью
+  migration-before-workloads;
 - `scripts/target-canary.mjs`, `target-canary-config.example.json` и
   `target-canary-runbook.md` — fail-closed live DNS/TLS, edge, OIDC, two-way
   mTLS+short-lived-workload-token и exact-session-scope evidence runner;

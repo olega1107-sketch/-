@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "deployment_id": "pilot-2026-08-11-01",
   "namespace": "dirizhor-pilot",
   "kubernetes_version": "v1.34",
@@ -14,12 +14,11 @@
     "gateway": 1
   },
   "public": {
+    "exposure": "internal",
     "host": "dirizhor.example.invalid",
     "max_body_size": "26m",
     "load_balancer_source_ranges": ["198.51.100.0/24"],
-    "load_balancer_annotations": {
-      "service.beta.kubernetes.io/example-load-balancer-class": "replace-with-approved-class"
-    }
+    "load_balancer_annotations": {}
   },
   "networking": {
     "cluster_domain": "cluster.local",

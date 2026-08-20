@@ -49,8 +49,10 @@ export async function renderKubernetesTarget({
   }
   const manifestWithoutHash = {
     schema_version: 1,
+    target_schema_version: normalized.schema_version,
     deployment_id: normalized.deployment_id,
     namespace: normalized.namespace,
+    exposure: normalized.public.exposure,
     rendered_at: new Date().toISOString(),
     apply_order: [
       '00-prerequisites.json',
@@ -76,7 +78,7 @@ export function validateKubernetesTargetConfig(config) {
     'images', 'replicas', 'public', 'networking', 'postgresql', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
     'secrets', 'storage', 'resources',
   ], 'config');
-  if (config.schema_version !== 1) throw new Error('Unsupported Kubernetes target schema.');
+  if (![1, 2].includes(config.schema_version)) throw new Error('Unsupported Kubernetes target schema.');
   if (!executionIdPattern.test(config.deployment_id) || config.deployment_id.startsWith('replace-')) {
     throw new Error('A non-placeholder deployment ID is required.');
   }
@@ -84,19 +86,20 @@ export function validateKubernetesTargetConfig(config) {
   if (!kubernetesVersionPattern.test(config.kubernetes_version)) {
     throw new Error('kubernetes_version must pin an exact v1 minor.');
   }
-  validateImages(config.images);
-  validateReplicas(config.replicas);
-  validatePublic(config.public);
-  validateNetworking(config.networking);
-  validatePostgresql(config.postgresql);
-  validateOidc(config.oidc, config.public.host);
-  validateWorkloadIdentity(config.workload_identity);
-  validateInternalProvider(config.internal_provider);
-  validateAgentRoutes(config.agent_routes, config.internal_provider.models);
-  validateSecrets(config.secrets);
-  validateStorage(config.storage);
-  validateResources(config.resources);
-  return structuredClone(config);
+  const normalized = structuredClone(config);
+  validateImages(normalized.images);
+  validateReplicas(normalized.replicas);
+  validatePublic(normalized.public, normalized.schema_version);
+  validateNetworking(normalized.networking);
+  validatePostgresql(normalized.postgresql);
+  validateOidc(normalized.oidc, normalized.public.host);
+  validateWorkloadIdentity(normalized.workload_identity);
+  validateInternalProvider(normalized.internal_provider);
+  validateAgentRoutes(normalized.agent_routes, normalized.internal_provider.models);
+  validateSecrets(normalized.secrets);
+  validateStorage(normalized.storage);
+  validateResources(normalized.resources);
+  return normalized;
 }
 
 export function buildKubernetesBundles(config) {
@@ -190,12 +193,21 @@ export function validateRenderedResources(resources, config) {
   );
   if (statefulPostgres) throw new Error('Target renderer must not deploy an unmanaged PostgreSQL server.');
   const edge = findResource(resources, 'Service', 'dirizhor-edge');
+  const expectedEdgeServiceType = config.public.exposure === 'internal' ? 'ClusterIP' : 'LoadBalancer';
   if (
-    edge.spec.type !== 'LoadBalancer' ||
+    edge.spec.type !== expectedEdgeServiceType ||
     edge.spec.ports?.[0]?.port !== 443 ||
     edge.spec.ports?.[0]?.targetPort !== 'https'
   ) {
-    throw new Error('Public edge service contract is invalid.');
+    throw new Error('Edge service exposure contract is invalid.');
+  }
+  if (
+    config.public.exposure === 'internal' &&
+    (edge.spec.externalTrafficPolicy !== undefined ||
+      edge.spec.loadBalancerSourceRanges !== undefined ||
+      edge.metadata.annotations !== undefined)
+  ) {
+    throw new Error('Internal edge service must not include load balancer configuration.');
   }
   for (const name of ['default-deny', 'allow-dns', 'edge', 'director', 'gateway', 'migration', 'runtime-privilege']) {
     findResource(resources, 'NetworkPolicy', `dirizhor-${name}`);
@@ -257,13 +269,25 @@ function internalService(namespace, component, port) {
 }
 
 function edgeService(config) {
-  return namespacedResource('v1', 'Service', config.namespace, 'dirizhor-edge', {
-    type: 'LoadBalancer',
-    externalTrafficPolicy: 'Local',
-    loadBalancerSourceRanges: config.public.load_balancer_source_ranges,
+  const internal = config.public.exposure === 'internal';
+  const spec = {
+    type: internal ? 'ClusterIP' : 'LoadBalancer',
     selector: selector('edge'),
     ports: [{ name: 'https', protocol: 'TCP', port: 443, targetPort: 'https' }],
-  }, labels('edge'), { metadata: { annotations: config.public.load_balancer_annotations } });
+    ...(internal ? {} : {
+      externalTrafficPolicy: 'Local',
+      loadBalancerSourceRanges: config.public.load_balancer_source_ranges,
+    }),
+  };
+  return namespacedResource(
+    'v1',
+    'Service',
+    config.namespace,
+    'dirizhor-edge',
+    spec,
+    labels('edge'),
+    internal ? {} : { metadata: { annotations: config.public.load_balancer_annotations } },
+  );
 }
 
 function edgeDisruptionBudget(namespace) {
@@ -700,17 +724,32 @@ function validateReplicas(replicas) {
   }
 }
 
-function validatePublic(publicConfig) {
+function validatePublic(publicConfig, schemaVersion) {
   assertObject(publicConfig, 'public');
-  assertExactKeys(publicConfig, ['host', 'max_body_size', 'load_balancer_source_ranges', 'load_balancer_annotations'], 'public');
+  const legacyKeys = ['host', 'max_body_size', 'load_balancer_source_ranges', 'load_balancer_annotations'];
+  if (schemaVersion === 1) {
+    assertExactKeys(publicConfig, legacyKeys, 'public');
+    publicConfig.exposure = 'load-balancer';
+  } else {
+    assertExactKeys(publicConfig, ['exposure', ...legacyKeys], 'public');
+  }
   if (!hostname(publicConfig.host) || !/^[1-9][0-9]*(?:k|m|g)$/i.test(publicConfig.max_body_size)) {
     throw new Error('Public host or body size is invalid.');
+  }
+  if (!['internal', 'load-balancer'].includes(publicConfig.exposure)) {
+    throw new Error('Edge exposure must be internal or load-balancer.');
   }
   validateCidrs(publicConfig.load_balancer_source_ranges, 'load_balancer_source_ranges');
   if (publicConfig.load_balancer_source_ranges.includes('0.0.0.0/0')) {
     throw new Error('Public load balancer source ranges must be explicit.');
   }
   assertStringMap(publicConfig.load_balancer_annotations, 'load_balancer_annotations');
+  if (
+    publicConfig.exposure === 'internal' &&
+    Object.keys(publicConfig.load_balancer_annotations).length > 0
+  ) {
+    throw new Error('Internal edge exposure must not include load balancer annotations.');
+  }
 }
 
 function validateNetworking(networking) {

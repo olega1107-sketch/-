@@ -107,15 +107,17 @@ protected local Terraform state.
   region. Its verified exact issuer is
   `https://dirizhor-pilot-r5zsil.eu1.zitadel.cloud`.
 - OIDC discovery is reachable at the issuer's standard
-  `/.well-known/openid-configuration` endpoint. A Director project/client,
-  client ID, callback registration, and client secret have not been created.
+  `/.well-known/openid-configuration` endpoint. ZITADEL project
+  `Dirizhor Pilot` (`387140633518721046`) and active Web application
+  `Director Pilot` (`387140944803186710`) are registered with Basic
+  authentication and client ID `387140944803252246`. The regenerated client
+  secret was handled by the owner outside Git and was not read into evidence.
 - The reserved Director callback is
   `https://pilot.baza.fyi/api/v1/auth/oidc/callback`; reserving this string does
   not authorize public DNS, a LoadBalancer, certificate issuance, or ingress.
 - The exact non-secret ZITADEL application settings are frozen in the
   [OIDC/SSO operational runbook](oidc-operations-runbook.md#zitadel-pilot-registration-sheet).
-  Project/application creation and secret generation still require explicit
-  approval.
+  DNS publication, runtime secret injection, and workloads remain unapproved.
 
 ## Sensitive Local Files
 

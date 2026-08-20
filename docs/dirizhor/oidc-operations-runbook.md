@@ -47,7 +47,10 @@ Email, UPN, display name и group claims не используются для li
 | ZITADEL setting | Exact value |
 | --- | --- |
 | Project name | `Dirizhor Pilot` |
+| Project ID | `387140633518721046` |
 | Application name | `Director Pilot` |
+| Application ID | `387140944803186710` |
+| Client ID | `387140944803252246` |
 | Application type | `Web` |
 | Authentication method | `Basic` (`client_secret_basic`) |
 | Grant type | `Authorization Code` |
@@ -58,13 +61,13 @@ Email, UPN, display name и group claims не используются для li
 | Scopes | `openid profile email` |
 | ID Token signing algorithm | `RS256` |
 
-Development mode, wildcard redirect URIs, implicit flow и password grant не
-включаются. `client_id` фиксируется после создания application.
-Client secret копируется один раз напрямую в утверждённое внешнее
-хранилище; его нельзя вставлять в этот файл, чат, shell history или
-GitHub variables. Создание project/application и генерация secret
-требуют отдельного разрешения. Регистрация URI не разрешает
-публикацию DNS или создание public LoadBalancer.
+Registration status: `Active`, verified in the ZITADEL console. Development
+mode, wildcard redirect URIs, implicit flow и password grant не включены.
+Client secret был перевыпущен и обработан владельцем вне Git; его
+значение не считывалось и не фиксировалось в evidence. Его нельзя
+вставлять в этот файл, чат, shell history или GitHub variables.
+Регистрация URI не разрешает публикацию DNS или создание public
+LoadBalancer.
 
 ## 3. Runtime configuration
 

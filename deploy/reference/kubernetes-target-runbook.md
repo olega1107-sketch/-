@@ -46,6 +46,17 @@ Wildcard и `matchPattern` запрещены. Для каждого внешн�
 используют FQDN, а не зафиксированный снимок DNS-адресов. До render оператор
 сверяет exact имена с OIDC discovery и утверждённым AI API origin.
 
+Schema v4 добавляет явный external-only профиль для пилота без внутреннего
+inference provider. В нём `internal_provider` и
+`secrets.gateway_internal_provider_tls` равны `null`,
+`networking.internal_provider_egress_cidrs` является пустым массивом, а
+`agent_routes` не содержит `provider=internal`. Renderer не создаёт для
+Gateway internal-provider environment, token reference, TLS mount или egress.
+Хотя бы один внешний route с непустой `provider_data_profile_version` остаётся
+обязательным. Это профиль размещения, а не разрешение передавать внешнему AI
+любые данные: project policy, Auth/RBAC, confirmation и frozen authorized
+context применяются без изменений. Схемы v1-v3 по-прежнему требуют оба route.
+
 ```bash
 cd deploy/reference
 node scripts/kubernetes-render.mjs \
@@ -107,11 +118,11 @@ Required object/key inventory:
 | `director_database` | `database-url` (тот же runtime PostgreSQL credential, без других Director secrets) |
 | `director_tls` | `tls.crt`, `tls.key`, `ca.crt` |
 | `director_gateway_client_tls` | `tls.crt`, `tls.key`, `ca.crt` |
-| `gateway_runtime` | `spool-key-base64`, `openai-api-key`, `internal-provider-token` |
+| `gateway_runtime` | `spool-key-base64`, `openai-api-key`; `internal-provider-token` только при настроенном `internal_provider` |
 | `gateway_tls` | `tls.crt`, `tls.key`, `ca.crt` |
 | `gateway_director_client_tls` | `tls.crt`, `tls.key`, `ca.crt` |
 | `gateway_probe_client_tls` | `tls.crt`, `tls.key`, `ca.crt` |
-| `gateway_internal_provider_tls` | `tls.crt`, `tls.key`, `ca.crt` |
+| `gateway_internal_provider_tls` | `tls.crt`, `tls.key`, `ca.crt`; значение `null` для schema-v4 external-only |
 | `edge_tls` | `tls.crt`, `tls.key` |
 | `edge_director_ca` | `ca.crt` |
 | `postgres_ca` | `ca.crt` |
@@ -139,7 +150,8 @@ Client identities:
 - Director -> Gateway: CN `director-api`, `clientAuth`;
 - Gateway -> Director: CN `agent-gateway`, `clientAuth`;
 - Gateway local readiness probe: CN `gateway-probe`, `clientAuth`.
-- Gateway -> internal provider: CN `agent-gateway-internal-provider`, `clientAuth`.
+- Gateway -> internal provider: CN `agent-gateway-internal-provider`, `clientAuth`
+  (только если internal provider настроен).
 
 Server certificates имеют только `serverAuth`; trust chains и private key
 permissions проходят `certificate-preflight.mjs`. При включённом

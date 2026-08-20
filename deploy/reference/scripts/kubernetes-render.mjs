@@ -78,7 +78,7 @@ export function validateKubernetesTargetConfig(config) {
     'images', 'replicas', 'public', 'networking', 'postgresql', 'oidc', 'workload_identity', 'internal_provider', 'agent_routes',
     'secrets', 'storage', 'resources',
   ], 'config');
-  if (![1, 2, 3].includes(config.schema_version)) throw new Error('Unsupported Kubernetes target schema.');
+  if (![1, 2, 3, 4].includes(config.schema_version)) throw new Error('Unsupported Kubernetes target schema.');
   if (!executionIdPattern.test(config.deployment_id) || config.deployment_id.startsWith('replace-')) {
     throw new Error('A non-placeholder deployment ID is required.');
   }
@@ -90,13 +90,13 @@ export function validateKubernetesTargetConfig(config) {
   validateImages(normalized.images);
   validateReplicas(normalized.replicas);
   validatePublic(normalized.public, normalized.schema_version);
-  validateNetworking(normalized.networking, normalized.schema_version);
+  validateInternalProvider(normalized.internal_provider, normalized.schema_version);
+  validateNetworking(normalized.networking, normalized.schema_version, normalized.internal_provider !== null);
   validatePostgresql(normalized.postgresql);
   validateOidc(normalized.oidc, normalized.public.host);
   validateWorkloadIdentity(normalized.workload_identity);
-  validateInternalProvider(normalized.internal_provider);
-  validateAgentRoutes(normalized.agent_routes, normalized.internal_provider.models);
-  validateSecrets(normalized.secrets);
+  validateAgentRoutes(normalized.agent_routes, normalized.internal_provider?.models ?? [], normalized.internal_provider !== null);
+  validateSecrets(normalized.secrets, normalized.internal_provider !== null);
   validateStorage(normalized.storage);
   validateResources(normalized.resources);
   return normalized;
@@ -402,7 +402,9 @@ function gatewayDeployment(config) {
     env: [
       secretFileEnv('GATEWAY_SPOOL_KEY_BASE64_FILE', '/run/secrets/gateway-runtime/spool-key-base64'),
       secretFileEnv('OPENAI_API_KEY_FILE', '/run/secrets/gateway-runtime/openai-api-key'),
-      secretFileEnv('INTERNAL_PROVIDER_TOKEN_FILE', '/run/secrets/gateway-runtime/internal-provider-token'),
+      ...(config.internal_provider === null ? [] : [
+        secretFileEnv('INTERNAL_PROVIDER_TOKEN_FILE', '/run/secrets/gateway-runtime/internal-provider-token'),
+      ]),
       secretFileEnv('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE', '/run/secrets/workload-identity/signing-private-key-base64'),
       secretFileEnv('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE', '/run/secrets/workload-identity/director-verification-keys-json'),
     ],
@@ -419,7 +421,9 @@ function gatewayDeployment(config) {
       { name: 'gateway-tls', mountPath: '/run/secrets/gateway-tls', readOnly: true },
       { name: 'director-client-tls', mountPath: '/run/secrets/director-client-tls', readOnly: true },
       { name: 'gateway-probe-tls', mountPath: '/run/secrets/gateway-probe-tls', readOnly: true },
-      { name: 'internal-provider-tls', mountPath: '/run/secrets/internal-provider-tls', readOnly: true },
+      ...(config.internal_provider === null ? [] : [
+        { name: 'internal-provider-tls', mountPath: '/run/secrets/internal-provider-tls', readOnly: true },
+      ]),
     ],
   };
   return deployment(config, 'gateway', 1, container, [
@@ -429,7 +433,9 @@ function gatewayDeployment(config) {
     secretVolume('gateway-tls', config.secrets.gateway_tls),
     secretVolume('director-client-tls', config.secrets.gateway_director_client_tls),
     secretVolume('gateway-probe-tls', config.secrets.gateway_probe_client_tls),
-    secretVolume('internal-provider-tls', config.secrets.gateway_internal_provider_tls),
+    ...(config.internal_provider === null ? [] : [
+      secretVolume('internal-provider-tls', config.secrets.gateway_internal_provider_tls),
+    ]),
   ], { type: 'Recreate' });
 }
 
@@ -694,12 +700,14 @@ function gatewayEnvironment(config, names) {
     GATEWAY_DIRECTOR_CLIENT_CERT_PATH: '/run/secrets/director-client-tls/tls.crt',
     GATEWAY_DIRECTOR_CLIENT_KEY_PATH: '/run/secrets/director-client-tls/tls.key',
     GATEWAY_DIRECTOR_CA_PATH: '/run/secrets/director-client-tls/ca.crt',
-    INTERNAL_PROVIDER_ORIGIN: config.internal_provider.origin,
-    INTERNAL_PROVIDER_MODELS: config.internal_provider.models.join(','),
-    INTERNAL_PROVIDER_CLIENT_CERT_PATH: '/run/secrets/internal-provider-tls/tls.crt',
-    INTERNAL_PROVIDER_CLIENT_KEY_PATH: '/run/secrets/internal-provider-tls/tls.key',
-    INTERNAL_PROVIDER_CA_PATH: '/run/secrets/internal-provider-tls/ca.crt',
-    INTERNAL_PROVIDER_ALLOWED_CLIENT_CNS: 'agent-gateway-internal-provider',
+    ...(config.internal_provider === null ? {} : {
+      INTERNAL_PROVIDER_ORIGIN: config.internal_provider.origin,
+      INTERNAL_PROVIDER_MODELS: config.internal_provider.models.join(','),
+      INTERNAL_PROVIDER_CLIENT_CERT_PATH: '/run/secrets/internal-provider-tls/tls.crt',
+      INTERNAL_PROVIDER_CLIENT_KEY_PATH: '/run/secrets/internal-provider-tls/tls.key',
+      INTERNAL_PROVIDER_CA_PATH: '/run/secrets/internal-provider-tls/ca.crt',
+      INTERNAL_PROVIDER_ALLOWED_CLIENT_CNS: 'agent-gateway-internal-provider',
+    }),
   };
 }
 
@@ -785,7 +793,7 @@ function validatePublic(publicConfig, schemaVersion) {
   }
 }
 
-function validateNetworking(networking, schemaVersion) {
+function validateNetworking(networking, schemaVersion, internalProviderEnabled) {
   assertObject(networking, 'networking');
   const cidrKeys = [
     'cluster_domain', 'dns_namespace', 'trusted_proxy_cidrs', 'postgresql_cidrs',
@@ -807,7 +815,12 @@ function validateNetworking(networking, schemaVersion) {
     throw new Error('Cluster DNS configuration is invalid.');
   }
   for (const key of ['trusted_proxy_cidrs', 'postgresql_cidrs', 'internal_provider_egress_cidrs']) {
-    validateCidrs(networking[key], key);
+    validateCidrs(networking[key], key, {
+      allowEmpty: key === 'internal_provider_egress_cidrs' && schemaVersion >= 4 && !internalProviderEnabled,
+    });
+  }
+  if (!internalProviderEnabled && networking.internal_provider_egress_cidrs.length !== 0) {
+    throw new Error('External-only target must not allow internal provider egress.');
   }
   validateFqdns(networking.oidc_egress_fqdns, 'oidc_egress_fqdns');
   validateFqdns(networking.ai_provider_egress_fqdns, 'ai_provider_egress_fqdns');
@@ -837,7 +850,11 @@ function validatePostgresql(postgresql) {
   }
 }
 
-function validateInternalProvider(provider) {
+function validateInternalProvider(provider, schemaVersion) {
+  if (provider === null) {
+    if (schemaVersion < 4) throw new Error('Internal provider is required before schema v4.');
+    return;
+  }
   assertObject(provider, 'internal_provider');
   assertExactKeys(provider, ['origin', 'models'], 'internal_provider');
   let origin;
@@ -883,7 +900,7 @@ function validateOidc(oidc, publicHost) {
   }
 }
 
-function validateAgentRoutes(routes, internalModels) {
+function validateAgentRoutes(routes, internalModels, internalProviderEnabled) {
   if (!Array.isArray(routes) || routes.length === 0) throw new Error('At least one agent route is required.');
   const agentTypes = new Set();
   for (const route of routes) {
@@ -900,6 +917,9 @@ function validateAgentRoutes(routes, internalModels) {
     ) {
       throw new Error('Agent route is invalid or duplicated.');
     }
+    if (!internalProviderEnabled && route.provider === 'internal') {
+      throw new Error('External-only target must not contain internal agent routes.');
+    }
     if (
       (route.provider === 'internal' &&
         (route.deployment_class !== 'internal' ||
@@ -914,12 +934,15 @@ function validateAgentRoutes(routes, internalModels) {
     }
     agentTypes.add(route.agent_type);
   }
-  if (!routes.some((route) => route.provider === 'internal') || !routes.some((route) => route.provider === 'openai')) {
-    throw new Error('Pilot target requires both internal and external agent routes.');
+  if (!routes.some((route) => route.provider === 'openai')) {
+    throw new Error('Pilot target requires at least one external agent route.');
+  }
+  if (internalProviderEnabled && !routes.some((route) => route.provider === 'internal')) {
+    throw new Error('Configured internal provider requires an internal agent route.');
   }
 }
 
-function validateSecrets(secrets) {
+function validateSecrets(secrets, internalProviderEnabled) {
   assertObject(secrets, 'secrets');
   const keys = [
     'image_pull', 'director_workload_identity', 'gateway_workload_identity', 'director_runtime', 'director_database', 'director_tls',
@@ -928,7 +951,14 @@ function validateSecrets(secrets) {
     'gateway_internal_provider_tls', 'edge_director_ca', 'postgres_ca', 'migration_database',
   ];
   assertExactKeys(secrets, keys, 'secrets');
-  if (new Set(Object.values(secrets)).size !== keys.length || Object.values(secrets).some((name) => !dnsLabelPattern.test(name))) {
+  if (internalProviderEnabled && !dnsLabelPattern.test(secrets.gateway_internal_provider_tls)) {
+    throw new Error('Configured internal provider requires its TLS Secret.');
+  }
+  if (!internalProviderEnabled && secrets.gateway_internal_provider_tls !== null) {
+    throw new Error('External-only target must not reference an internal provider TLS Secret.');
+  }
+  const names = Object.values(secrets).filter((name) => name !== null);
+  if (new Set(names).size !== names.length || names.some((name) => !dnsLabelPattern.test(name))) {
     throw new Error('Secret object names must be unique DNS labels.');
   }
 }

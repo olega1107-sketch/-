@@ -88,6 +88,10 @@ protected local Terraform state.
   render digest was
   `sha256:7eee924d5bdda2d803fcc3815552f24fa9afae0fb9253f3f2c8b8d1df35fe5e1`;
   it used `.invalid` test FQDNs and is not deployment evidence.
+- Schema v4 can render an external-only pilot without internal-provider route,
+  Secret reference, TLS mount, token reference, or egress. This is only a
+  deployment option; a concrete external model and provider data profile still
+  require owner approval and live evidence.
 - OIDC, internal provider, external provider names/models, runtime role, secret
   material, and PKI values remain unapproved.
 

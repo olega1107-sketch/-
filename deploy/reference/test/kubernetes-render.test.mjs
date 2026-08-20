@@ -193,6 +193,60 @@ test('schema v2 supports an explicitly selected load balancer exposure', () => {
   assert.deepEqual(edgeService.metadata.annotations, config.public.load_balancer_annotations);
 });
 
+test('schema v4 supports an external-only target without internal provider access', () => {
+  const config = externalOnlyConfig();
+  const normalized = validateKubernetesTargetConfig(config);
+  const resources = allResources(buildKubernetesBundles(normalized));
+  assert.equal(validateRenderedResources(resources, normalized).status, 'ok');
+
+  const gatewayConfig = resources.find(
+    (resource) => resource.kind === 'ConfigMap' && resource.metadata.name === 'dirizhor-gateway-config',
+  );
+  assert.equal(Object.keys(gatewayConfig.data).some((name) => name.startsWith('INTERNAL_PROVIDER_')), false);
+
+  const gateway = deployment(resources, 'gateway');
+  const container = gateway.spec.template.spec.containers[0];
+  assert.equal(container.env.some((entry) => entry.name === 'INTERNAL_PROVIDER_TOKEN_FILE'), false);
+  assert.equal(container.volumeMounts.some((mount) => mount.name === 'internal-provider-tls'), false);
+  assert.equal(gateway.spec.template.spec.volumes.some((volume) => volume.name === 'internal-provider-tls'), false);
+
+  const gatewayPolicy = resources.find(
+    (resource) => resource.kind === 'NetworkPolicy' && resource.metadata.name === 'dirizhor-gateway',
+  );
+  assert.equal(
+    gatewayPolicy.spec.egress.some((rule) => rule.to?.some((peer) => peer.ipBlock?.cidr === '10.80.0.10/32')),
+    false,
+  );
+});
+
+test('schema v4 keeps the dual-provider contract when an internal provider is configured', () => {
+  const config = validConfig();
+  config.schema_version = 4;
+  const normalized = validateKubernetesTargetConfig(config);
+  assert.equal(normalized.internal_provider.origin, config.internal_provider.origin);
+  assert.equal(validateRenderedResources(allResources(buildKubernetesBundles(normalized)), normalized).status, 'ok');
+});
+
+test('schema v4 external-only target rejects internal provider remnants', () => {
+  const base = externalOnlyConfig();
+  const legacy = structuredClone(base);
+  legacy.schema_version = 3;
+  legacy.networking.internal_provider_egress_cidrs = ['10.80.0.10/32'];
+  assert.throws(() => validateKubernetesTargetConfig(legacy), /required before schema v4/);
+
+  const route = structuredClone(base);
+  route.agent_routes.unshift(validConfig().agent_routes[0]);
+  assert.throws(() => validateKubernetesTargetConfig(route), /must not contain internal agent routes/);
+
+  const egress = structuredClone(base);
+  egress.networking.internal_provider_egress_cidrs = ['10.80.0.10/32'];
+  assert.throws(() => validateKubernetesTargetConfig(egress), /must not allow internal provider egress/);
+
+  const secret = structuredClone(base);
+  secret.secrets.gateway_internal_provider_tls = 'dirizhor-gateway-internal-provider-tls';
+  assert.throws(() => validateKubernetesTargetConfig(secret), /must not reference an internal provider TLS Secret/);
+});
+
 test('manifest validator blocks root, mutable image, embedded Secret, and migration drift', () => {
   const config = validConfig();
   const cases = [
@@ -373,6 +427,16 @@ function cidrSchemaConfig(schemaVersion) {
   delete config.networking.oidc_egress_fqdns;
   delete config.networking.ai_provider_egress_fqdns;
   if (schemaVersion === 1) delete config.public.exposure;
+  return config;
+}
+
+function externalOnlyConfig() {
+  const config = validConfig();
+  config.schema_version = 4;
+  config.internal_provider = null;
+  config.agent_routes = config.agent_routes.filter((route) => route.provider !== 'internal');
+  config.networking.internal_provider_egress_cidrs = [];
+  config.secrets.gateway_internal_provider_tls = null;
   return config;
 }
 

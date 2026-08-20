@@ -56,6 +56,8 @@ Gateway internal-provider environment, token reference, TLS mount или egress.
 обязательным. Это профиль размещения, а не разрешение передавать внешнему AI
 любые данные: project policy, Auth/RBAC, confirmation и frozen authorized
 context применяются без изменений. Схемы v1-v3 по-прежнему требуют оба route.
+Заполняемый образец находится в
+`kubernetes-target-config.external-only.example.json`.
 
 ```bash
 cd deploy/reference

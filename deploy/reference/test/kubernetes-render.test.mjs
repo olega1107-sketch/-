@@ -12,6 +12,7 @@ import {
 } from '../scripts/kubernetes-render.mjs';
 
 const digest = (character) => `sha256:${character.repeat(64)}`;
+const externalOnlyExampleUrl = new URL('../kubernetes-target-config.external-only.example.json', import.meta.url);
 
 test('target config rejects mutable images, unsafe exposure, and unsupported scaling', () => {
   const config = validConfig();
@@ -217,6 +218,13 @@ test('schema v4 supports an external-only target without internal provider acces
     gatewayPolicy.spec.egress.some((rule) => rule.to?.some((peer) => peer.ipBlock?.cidr === '10.80.0.10/32')),
     false,
   );
+});
+
+test('schema v4 external-only example stays renderable', async () => {
+  const config = JSON.parse(await readFile(externalOnlyExampleUrl, 'utf8'));
+  const normalized = validateKubernetesTargetConfig(config);
+  const resources = allResources(buildKubernetesBundles(normalized));
+  assert.equal(validateRenderedResources(resources, normalized).status, 'ok');
 });
 
 test('schema v4 keeps the dual-provider contract when an internal provider is configured', () => {

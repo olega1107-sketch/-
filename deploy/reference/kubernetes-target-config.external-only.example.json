@@ -1,0 +1,106 @@
+{
+  "schema_version": 4,
+  "deployment_id": "pilot-2026-08-20-01",
+  "namespace": "dirizhor-pilot",
+  "kubernetes_version": "v1.34",
+  "images": {
+    "director": "registry.invalid/dirizhor/director@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "gateway": "registry.invalid/dirizhor/gateway@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "edge": "registry.invalid/dirizhor/edge@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc"
+  },
+  "replicas": {
+    "edge": 2,
+    "director": 1,
+    "gateway": 1
+  },
+  "public": {
+    "exposure": "internal",
+    "host": "dirizhor.example.invalid",
+    "max_body_size": "26m",
+    "load_balancer_source_ranges": ["198.51.100.0/24"],
+    "load_balancer_annotations": {}
+  },
+  "networking": {
+    "cluster_domain": "cluster.local",
+    "dns_namespace": "kube-system",
+    "trusted_proxy_cidrs": ["10.70.0.0/24"],
+    "postgresql_cidrs": ["192.0.2.10/32"],
+    "postgresql_port": 5432,
+    "oidc_egress_cidrs": [],
+    "oidc_egress_fqdns": ["idp.example.invalid"],
+    "internal_provider_egress_cidrs": [],
+    "ai_provider_egress_cidrs": [],
+    "ai_provider_egress_fqdns": ["api.example.invalid"]
+  },
+  "postgresql": {
+    "database_name": "dirizhor_pilot",
+    "runtime_role": "dirizhor_runtime"
+  },
+  "oidc": {
+    "issuer_url": "https://idp.example.invalid",
+    "client_id": "dirizhor-pilot",
+    "scopes": ["openid", "profile", "email"],
+    "id_token_signing_algorithm": "RS256"
+  },
+  "workload_identity": {
+    "director_signing_key_id": "director-2026-08-a",
+    "gateway_signing_key_id": "gateway-2026-08-a",
+    "token_ttl_seconds": 60
+  },
+  "internal_provider": null,
+  "agent_routes": [
+    {
+      "agent_type": "architect",
+      "provider": "openai",
+      "model": "replace-with-approved-model",
+      "deployment_class": "external",
+      "provider_data_profile_version": "approved-profile-v1"
+    }
+  ],
+  "secrets": {
+    "image_pull": "dirizhor-registry-auth",
+    "director_workload_identity": "dirizhor-director-workload-identity",
+    "gateway_workload_identity": "dirizhor-gateway-workload-identity",
+    "director_runtime": "dirizhor-director-runtime",
+    "director_database": "dirizhor-director-database",
+    "director_tls": "dirizhor-director-tls",
+    "director_gateway_client_tls": "dirizhor-director-gateway-client-tls",
+    "gateway_runtime": "dirizhor-gateway-runtime",
+    "gateway_tls": "dirizhor-gateway-tls",
+    "gateway_director_client_tls": "dirizhor-gateway-director-client-tls",
+    "gateway_probe_client_tls": "dirizhor-gateway-probe-client-tls",
+    "gateway_internal_provider_tls": null,
+    "edge_tls": "dirizhor-edge-tls",
+    "edge_director_ca": "dirizhor-edge-director-ca",
+    "postgres_ca": "dirizhor-postgres-ca",
+    "migration_database": "dirizhor-migration-database"
+  },
+  "storage": {
+    "director": {
+      "storage_class_name": "encrypted-rwo",
+      "size": "100Gi"
+    },
+    "gateway": {
+      "storage_class_name": "encrypted-rwo",
+      "size": "20Gi"
+    }
+  },
+  "resources": {
+    "edge": {
+      "requests": {"cpu": "100m", "memory": "128Mi", "ephemeral-storage": "128Mi"},
+      "limits": {"cpu": "500m", "memory": "256Mi", "ephemeral-storage": "256Mi"}
+    },
+    "director": {
+      "requests": {"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "256Mi"},
+      "limits": {"cpu": "1000m", "memory": "1Gi", "ephemeral-storage": "512Mi"}
+    },
+    "gateway": {
+      "requests": {"cpu": "250m", "memory": "512Mi", "ephemeral-storage": "256Mi"},
+      "limits": {"cpu": "1000m", "memory": "1Gi", "ephemeral-storage": "512Mi"}
+    },
+    "migration": {
+      "requests": {"cpu": "100m", "memory": "256Mi", "ephemeral-storage": "128Mi"},
+      "limits": {"cpu": "500m", "memory": "512Mi", "ephemeral-storage": "256Mi"}
+    }
+  }
+}

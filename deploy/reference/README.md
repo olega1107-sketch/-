@@ -38,7 +38,8 @@ Director protected HTTPS <---- mTLS ----> Agent Gateway
   contracts и canonical base image references;
 - `scripts/oci-release.mjs` и `oci-release-config.example.json` — fail-closed
   multi-platform build/push, registry digest, SBOM, scan, signing и release evidence;
-- `scripts/kubernetes-render.mjs`, `kubernetes-target-config.example.json` и
+- `scripts/kubernetes-render.mjs`, `kubernetes-target-config.example.json`,
+  `kubernetes-target-config.external-only.example.json` и
   `kubernetes-target-runbook.md` — строгий target renderer с schema-v2
   internal-first `ClusterIP` exposure, schema-v3 exact-FQDN egress для Cilium,
   schema-v4 external-only AI profile без неиспользуемых internal-provider

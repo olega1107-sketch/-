@@ -138,10 +138,24 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
   const gateway = deployment(resources, 'gateway');
   assert.ok(gateway.spec.template.spec.volumes.some((volume) => volume.name === 'internal-provider-tls'));
   assert.ok(gateway.spec.template.spec.volumes.some((volume) => volume.name === 'workload-identity'));
+  assert.equal(
+    gateway.spec.template.spec.containers[0].volumeMounts.find((mount) => mount.name === 'state').mountPath,
+    '/var/lib/dirizhor',
+  );
   const gatewayEnvNames = gateway.spec.template.spec.containers[0].env.map((entry) => entry.name);
   assert.ok(gatewayEnvNames.includes('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE'));
   assert.ok(gatewayEnvNames.includes('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE'));
   assert.equal(gatewayEnvNames.includes('GATEWAY_DIRECTOR_TOKEN_FILE'), false);
+  const director = deployment(resources, 'director');
+  assert.equal(
+    director.spec.template.spec.containers[0].volumeMounts.find((mount) => mount.name === 'documents').mountPath,
+    '/var/lib/dirizhor',
+  );
+  const edge = deployment(resources, 'edge');
+  assert.equal(
+    edge.spec.template.spec.volumes.find((volume) => volume.name === 'edge-secrets').projected.defaultMode,
+    0o440,
+  );
   const migration = job(resources, 'migration');
   assert.deepEqual(migration.spec.template.spec.containers[0].command, ['node', 'dist/db-migrate-cli.js', 'migrate']);
   const privilege = job(resources, 'runtime-privilege');
@@ -286,6 +300,20 @@ test('manifest validator blocks root, mutable image, embedded Secret, and migrat
       pattern: /compiled read-only probe/,
       mutate(resources) {
         job(resources, 'runtime-privilege').spec.template.spec.containers[0].command = ['pnpm', 'db:runtime-privileges'];
+      },
+    },
+    {
+      pattern: /persistent volume must contain/,
+      mutate(resources) {
+        deployment(resources, 'director').spec.template.spec.containers[0].volumeMounts
+          .find((mount) => mount.name === 'documents').mountPath = '/var/lib/dirizhor/documents';
+      },
+    },
+    {
+      pattern: /projected TLS material must use mode 0440/,
+      mutate(resources) {
+        deployment(resources, 'edge').spec.template.spec.volumes
+          .find((volume) => volume.name === 'edge-secrets').projected.defaultMode = 0o644;
       },
     },
     {

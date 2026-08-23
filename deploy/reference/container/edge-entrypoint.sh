@@ -50,7 +50,7 @@ do
   [ -f "$secret" ] && [ -r "$secret" ] || fail 'A required TLS file is unavailable.'
 done
 
-key_mode="$(stat -c '%a' /run/secrets/public-tls.key 2>/dev/null)" || \
+key_mode="$(stat -L -c '%a' /run/secrets/public-tls.key 2>/dev/null)" || \
   fail 'Public TLS key permissions could not be inspected.'
 case "$key_mode" in
   400|440|600|640) ;;

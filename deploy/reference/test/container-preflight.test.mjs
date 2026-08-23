@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 
 import {
@@ -92,4 +93,12 @@ USER 10001:10001
     ),
     /missing a required supply-chain or runtime control/,
   );
+});
+
+test('Edge TLS permission check follows Kubernetes projected-volume symlinks', async () => {
+  const entrypoint = await readFile(
+    new URL('../container/edge-entrypoint.sh', import.meta.url),
+    'utf8',
+  );
+  assert.match(entrypoint, /stat -L -c '%a' \/run\/secrets\/public-tls\.key/);
 });

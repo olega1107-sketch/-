@@ -164,6 +164,8 @@ export function validateRenderedResources(resources, config) {
   const workloads = resources.filter((resource) => ['Deployment', 'Job'].includes(resource.kind));
   if (workloads.length !== 5) throw new Error('Rendered workload set is incomplete.');
   for (const workload of workloads) validateWorkload(workload, config);
+  validatePersistentRuntimeDirectories(workloads);
+  validateEdgeSecretProjection(workloads);
   const migration = workloads.find(
     (resource) =>
       resource.kind === 'Job' &&
@@ -371,7 +373,7 @@ function directorDeployment(config) {
     livenessProbe: httpsProbe('/health/live', 3),
     readinessProbe: httpsProbe('/health/ready', 3),
     volumeMounts: [
-      { name: 'documents', mountPath: '/var/lib/dirizhor/documents' },
+      { name: 'documents', mountPath: '/var/lib/dirizhor' },
       { name: 'director-runtime', mountPath: '/run/secrets/director-runtime', readOnly: true },
       { name: 'workload-identity', mountPath: '/run/secrets/workload-identity', readOnly: true },
       { name: 'director-tls', mountPath: '/run/secrets/director-tls', readOnly: true },
@@ -415,7 +417,7 @@ function gatewayDeployment(config) {
     livenessProbe: gatewayExecProbe('/health/live', gatewayDns, 3),
     readinessProbe: gatewayExecProbe('/health/ready', gatewayDns, 3),
     volumeMounts: [
-      { name: 'state', mountPath: '/var/lib/dirizhor/gateway' },
+      { name: 'state', mountPath: '/var/lib/dirizhor' },
       { name: 'gateway-runtime', mountPath: '/run/secrets/gateway-runtime', readOnly: true },
       { name: 'workload-identity', mountPath: '/run/secrets/workload-identity', readOnly: true },
       { name: 'gateway-tls', mountPath: '/run/secrets/gateway-tls', readOnly: true },
@@ -1083,6 +1085,32 @@ function secretVolume(name, secretName) {
 
 function pvcVolume(name, claimName) {
   return { name, persistentVolumeClaim: { claimName, readOnly: false } };
+}
+
+function validatePersistentRuntimeDirectories(workloads) {
+  for (const [component, volumeName] of [['director', 'documents'], ['gateway', 'state']]) {
+    const workload = workloads.find((resource) =>
+      resource.kind === 'Deployment' &&
+      resource.metadata.labels['app.kubernetes.io/component'] === component
+    );
+    const mount = workload?.spec?.template?.spec?.containers?.[0]?.volumeMounts
+      ?.find((candidate) => candidate.name === volumeName);
+    if (mount?.mountPath !== '/var/lib/dirizhor' || mount.subPath !== undefined) {
+      throw new Error(`${component} persistent volume must contain, not replace, its runtime directory.`);
+    }
+  }
+}
+
+function validateEdgeSecretProjection(workloads) {
+  const edge = workloads.find((resource) =>
+    resource.kind === 'Deployment' &&
+    resource.metadata.labels['app.kubernetes.io/component'] === 'edge'
+  );
+  const secrets = edge?.spec?.template?.spec?.volumes
+    ?.find((candidate) => candidate.name === 'edge-secrets');
+  if (secrets?.projected?.defaultMode !== 0o440) {
+    throw new Error('Edge projected TLS material must use mode 0440.');
+  }
 }
 
 function secretFileEnv(name, value) {

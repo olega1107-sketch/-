@@ -206,7 +206,7 @@ async function completeFixture({ failDirectorCheck = false } = {}) {
     await Promise.all([
       writeFile(
         path.join(absolute, 'package.json'),
-        '{"private":true,"packageManager":"pnpm@11.16.0"}\n',
+        '{"private":true,"packageManager":"pnpm@11.18.0"}\n',
       ),
       writeFile(path.join(absolute, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ]);
@@ -248,7 +248,7 @@ async function completeFixture({ failDirectorCheck = false } = {}) {
       return {
         exitCode: 0,
         durationMs: 1,
-        stdout: arguments_[0] === '--version' ? '11.16.0\n' : 'ok\n',
+        stdout: arguments_[0] === '--version' ? '11.18.0\n' : 'ok\n',
         stderr: '',
       };
     },

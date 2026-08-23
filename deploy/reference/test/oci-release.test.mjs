@@ -185,7 +185,7 @@ function validConfig() {
       node_runtime: `registry.invalid/approved/node-runtime@${digest('b')}`,
       nginx_runtime: `registry.invalid/approved/nginx-runtime@${digest('c')}`,
     },
-    package_manager: 'pnpm@11.16.0',
+    package_manager: 'pnpm@11.18.0',
     images: {
       director: 'registry.invalid/dirizhor/director:2026.08.11-1',
       gateway: 'registry.invalid/dirizhor/gateway:2026.08.11-1',

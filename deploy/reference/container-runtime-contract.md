@@ -16,7 +16,7 @@ Release содержит три независимо публикуемых OCI 
 Dockerfiles не имеют default base image. Release pipeline обязан передать
 canonical references `repository@sha256:<64 hex>` для build и runtime stages.
 Mutable tags недостаточны. Node build image должен содержать Node.js 22.18+ и
-ровно `pnpm 11.16.0`; Node runtime image — Node.js 22.18+. Nginx runtime image
+ровно `pnpm 11.18.0`; Node runtime image — Node.js 22.18+. Nginx runtime image
 должен содержать Nginx 1.25.1+, POSIX `sh`, `envsubst`, `stat`, `grep`, `cp` и
 CA root bundle и поддерживать запуск numeric UID/GID `10001`.
 
@@ -27,7 +27,7 @@ cd deploy/reference
 export DIRIZHOR_NODE_BUILD_IMAGE=registry.example/node-build@sha256:<digest>
 export DIRIZHOR_NODE_RUNTIME_IMAGE=registry.example/node-runtime@sha256:<digest>
 export DIRIZHOR_NGINX_RUNTIME_IMAGE=registry.example/nginx-runtime@sha256:<digest>
-export DIRIZHOR_PNPM_VERSION=11.16.0
+export DIRIZHOR_PNPM_VERSION=11.18.0
 node scripts/container-preflight.mjs
 ```
 

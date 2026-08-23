@@ -82,7 +82,7 @@ test('Node build image pins its parent and exact package manager', async () => {
   assert.match(dockerfile, /^# syntax=docker\/dockerfile:1\.7$/m);
   assert.match(dockerfile, /^FROM \$\{NODE_RUNTIME_IMAGE\}$/m);
   assert.match(dockerfile, /@sha256:\[0-9a-f\]\{64\}/);
-  assert.match(dockerfile, /test "\$\{PNPM_VERSION\}" = "11\.16\.0"/);
+  assert.match(dockerfile, /test "\$\{PNPM_VERSION\}" = "11\.18\.0"/);
   assert.match(dockerfile, /corepack prepare "pnpm@\$\{PNPM_VERSION\}" --activate/);
   assert.match(dockerfile, /test "\$\(pnpm --version\)" = "\$\{PNPM_VERSION\}"/);
   assert.match(dockerfile, /rm -rf \/usr\/local\/lib\/node_modules\/npm/);

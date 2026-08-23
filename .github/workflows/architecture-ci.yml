@@ -17,7 +17,7 @@ concurrency:
 
 env:
   NODE_VERSION: 24.19.0
-  PNPM_VERSION: 11.16.0
+  PNPM_VERSION: 11.18.0
 
 jobs:
   applications:
@@ -114,5 +114,5 @@ jobs:
           DIRIZHOR_NODE_BUILD_IMAGE: registry.invalid/approved/node-build@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
           DIRIZHOR_NODE_RUNTIME_IMAGE: registry.invalid/approved/node-runtime@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
           DIRIZHOR_NGINX_RUNTIME_IMAGE: registry.invalid/approved/nginx-runtime@sha256:cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-          DIRIZHOR_PNPM_VERSION: 11.16.0
+          DIRIZHOR_PNPM_VERSION: 11.18.0
         run: node deploy/reference/scripts/container-preflight.mjs

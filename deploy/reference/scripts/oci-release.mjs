@@ -141,8 +141,8 @@ export function validateOciReleaseConfig(config) {
     throw new Error('Platforms must be unique supported Linux targets.');
   }
   validateBaseImages(config.base_images);
-  if (config.package_manager !== 'pnpm@11.16.0') {
-    throw new Error('package_manager must be exactly pnpm@11.16.0.');
+  if (config.package_manager !== 'pnpm@11.18.0') {
+    throw new Error('package_manager must be exactly pnpm@11.18.0.');
   }
   validateReleaseTags(config.images);
   validateToolchain(config.toolchain);

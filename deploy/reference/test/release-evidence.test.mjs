@@ -33,7 +33,7 @@ test('collector writes private PASS evidence and hashes build output', async () 
     assert.equal(manifest.checks[0].artifact.build_file_count, 1);
     assert.match(manifest.checks[0].artifact.build_tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.match(manifest.collection_sha256, /^sha256:[0-9a-f]{64}$/);
-    assert.equal(manifest.toolchain.pnpm_version, '11.16.0');
+    assert.equal(manifest.toolchain.pnpm_version, '11.18.0');
     assert.equal(manifest.source.file_count, 4);
     assert.match(manifest.source.tree_sha256, /^sha256:[0-9a-f]{64}$/);
     assert.equal((await stat(output)).mode & 0o777, 0o700);
@@ -60,7 +60,7 @@ test('collector prepares every build package before running cross-package checks
     await Promise.all([
       writeFile(
         path.join(gatewayDirectory, 'package.json'),
-        '{"private":true,"packageManager":"pnpm@11.16.0"}\n',
+        '{"private":true,"packageManager":"pnpm@11.18.0"}\n',
       ),
       writeFile(path.join(gatewayDirectory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     ]);
@@ -134,7 +134,7 @@ test('collector rejects a builder with a different pnpm version', async () => {
           return successfulRunner(program, arguments_, options);
         },
       }),
-      /requires pnpm 11\.16\.0/,
+      /requires pnpm 11\.18\.0/,
     );
   } finally {
     await rm(fixture.root, { recursive: true, force: true });
@@ -425,7 +425,7 @@ async function fixtureWorkspace() {
     ),
     writeFile(
       path.join(packageDirectory, 'package.json'),
-      '{"private":true,"packageManager":"pnpm@11.16.0"}\n',
+      '{"private":true,"packageManager":"pnpm@11.18.0"}\n',
     ),
     writeFile(path.join(packageDirectory, 'pnpm-lock.yaml'), 'lockfileVersion: 9\n'),
     writeFile(path.join(sourceDirectory, 'tooling.mjs'), 'export const ready = true;\n'),
@@ -476,7 +476,7 @@ async function successfulRunner(_program, arguments_, options) {
   return {
     exitCode: 0,
     durationMs: 1,
-    stdout: arguments_[0] === '--version' ? '11.16.0\n' : 'ok\n',
+    stdout: arguments_[0] === '--version' ? '11.18.0\n' : 'ok\n',
     stderr: '',
   };
 }

@@ -19,7 +19,7 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const defaultWorkspaceRoot = path.resolve(scriptDirectory, '../../..');
 const executionIdPattern = /^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$/;
 const safeRelativePathPattern = /^[A-Za-z0-9._/-]+$/;
-export const releaseEvidencePnpmVersion = '11.16.0';
+export const releaseEvidencePnpmVersion = '11.18.0';
 const allowedCheckIds = new Set([
   'release.director',
   'release.gateway',

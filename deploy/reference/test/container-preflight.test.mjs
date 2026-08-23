@@ -13,7 +13,7 @@ const validEnvironment = {
   DIRIZHOR_NODE_BUILD_IMAGE: `registry.invalid/build/node@sha256:${digest}`,
   DIRIZHOR_NODE_RUNTIME_IMAGE: `registry.invalid/runtime/node@sha256:${digest}`,
   DIRIZHOR_NGINX_RUNTIME_IMAGE: `registry.invalid/runtime/nginx@sha256:${digest}`,
-  DIRIZHOR_PNPM_VERSION: '11.16.0',
+  DIRIZHOR_PNPM_VERSION: '11.18.0',
 };
 
 test('repository container contract passes with canonical base references', async () => {

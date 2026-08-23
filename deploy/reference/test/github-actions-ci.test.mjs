@@ -9,7 +9,7 @@ test('architecture CI is immutable, read-only, and cannot publish', async () => 
 
   assert.match(workflow, /^permissions:\n  contents: read$/m);
   assert.match(workflow, /^  NODE_VERSION: 24\.19\.0$/m);
-  assert.match(workflow, /^  PNPM_VERSION: 11\.16\.0$/m);
+  assert.match(workflow, /^  PNPM_VERSION: 11\.18\.0$/m);
   assert.equal(
     workflow.match(
       /actions\/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6\.0\.2/g,

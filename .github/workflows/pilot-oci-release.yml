@@ -20,7 +20,7 @@ env:
   REGISTRY_HOST: registry.digitalocean.com
   REGISTRY: registry.digitalocean.com/dirizherpilotregistry
   NODE_VERSION: 24.19.0
-  PNPM_VERSION: 11.16.0
+  PNPM_VERSION: 11.18.0
   DOCKER_VERSION: 28.3.3
   BUILDX_VERSION: 0.28.0
   SYFT_VERSION: 1.45.1
@@ -206,7 +206,7 @@ jobs:
                 node_runtime: $node_runtime,
                 nginx_runtime: $nginx_runtime
               },
-              package_manager: "pnpm@11.16.0",
+              package_manager: "pnpm@11.18.0",
               images: {director: $director, gateway: $gateway, edge: $edge},
               toolchain: {
                 policy_id: "pilot-oci-toolchain-2026-08",

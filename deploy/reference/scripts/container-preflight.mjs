@@ -208,6 +208,7 @@ async function validateEdgeFiles(root) {
     !nginxTemplate.includes('${DIRIZHOR_NGINX_INCLUDE_DIR}') ||
     nginxTemplate.includes('include /etc/nginx/director-proxy.conf') ||
     !nginxTemplate.includes('map $http_x_request_id $dirizhor_request_id') ||
+    !nginxTemplate.includes('"~^[0-9a-fA-F]{8}-') ||
     !proxyTemplate.includes('proxy_set_header X-Request-Id $dirizhor_request_id;')
   ) {
     throw new Error('Nginx template is missing a required runtime boundary control.');

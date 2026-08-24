@@ -220,6 +220,22 @@ describe('OIDC HTTP boundary', () => {
     expect(revoked.statusCode, revoked.body).toBe(401);
   });
 
+  it('starts browser OIDC navigation without a caller-provided request id', async () => {
+    const provider = new FakeOidcProvider(providerSubject);
+    ({ fixture, app } = await createOidcApp(provider, true));
+
+    const started = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/oidc/start',
+    });
+
+    expect(started.statusCode, started.body).toBe(302);
+    expect(started.headers.location).toContain('https://idp.example/authorize?');
+    expect(started.headers['x-request-id']).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    );
+  });
+
   it('does not provision an unknown subject or expose it in audit metadata', async () => {
     const unknownSubject = 'sensitive-unprovisioned-subject';
     ({ fixture, app } = await createOidcApp(new FakeOidcProvider(unknownSubject), false));

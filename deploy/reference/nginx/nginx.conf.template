@@ -29,6 +29,13 @@ http {
     limit_req_zone $binary_remote_addr zone=oidc_callback:10m rate=60r/m;
     limit_req_zone $binary_remote_addr zone=local_login:10m rate=5r/m;
 
+    # Browser navigations cannot add custom headers. Preserve valid caller IDs,
+    # but remove malformed proxy-provided values before Director validates them.
+    map $http_x_request_id $dirizhor_request_id {
+        default "";
+        ~^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$ $http_x_request_id;
+    }
+
     upstream director_public_api {
         server ${DIRECTOR_UPSTREAM_HOST}:${DIRECTOR_UPSTREAM_PORT};
         keepalive 32;

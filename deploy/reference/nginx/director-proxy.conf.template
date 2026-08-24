@@ -10,6 +10,7 @@ proxy_set_header X-Forwarded-Port ${DIRECTOR_PUBLIC_PORT};
 proxy_set_header X-Forwarded-Proto https;
 proxy_set_header Forwarded "";
 proxy_set_header X-Client-Cert "";
+proxy_set_header X-Request-Id $dirizhor_request_id;
 
 proxy_ssl_server_name on;
 proxy_ssl_name ${DIRECTOR_UPSTREAM_TLS_NAME};

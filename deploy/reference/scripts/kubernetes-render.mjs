@@ -331,6 +331,7 @@ function edgeDeployment(config) {
     volumeMounts: [
       { name: 'edge-secrets', mountPath: '/run/secrets', readOnly: true },
       { name: 'tmp', mountPath: '/tmp' },
+      { name: 'nginx-cache', mountPath: '/var/cache/nginx' },
     ],
   };
   return deployment(config, 'edge', config.replicas.edge, container, [
@@ -350,6 +351,7 @@ function edgeDeployment(config) {
       },
     },
     { name: 'tmp', emptyDir: { medium: 'Memory', sizeLimit: '128Mi' } },
+    { name: 'nginx-cache', emptyDir: { medium: 'Memory', sizeLimit: '64Mi' } },
   ], { type: 'RollingUpdate', rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } });
 }
 

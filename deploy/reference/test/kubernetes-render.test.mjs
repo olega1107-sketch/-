@@ -152,6 +152,13 @@ test('rendered resources use restricted pods, digest images, runtime migrator, a
     '/var/lib/dirizhor',
   );
   const edge = deployment(resources, 'edge');
+  assert.equal(edge.spec.template.spec.containers[0].volumeMounts.some(
+    (mount) => mount.name === 'nginx-cache' && mount.mountPath === '/var/cache/nginx',
+  ), true);
+  assert.deepEqual(edge.spec.template.spec.volumes.find((volume) => volume.name === 'nginx-cache')?.emptyDir, {
+    medium: 'Memory',
+    sizeLimit: '64Mi',
+  });
   assert.equal(
     edge.spec.template.spec.volumes.find((volume) => volume.name === 'edge-secrets').projected.defaultMode,
     0o440,

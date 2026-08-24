@@ -300,10 +300,8 @@ function configuredOidcAuthentication(
   if (allowInsecureDevelopment) {
     throw new Error('OIDC login is available only in protected HTTPS mode.');
   }
-  const issuerUrl = exactHttpsUrl(
-    required(env, 'DIRECTOR_OIDC_ISSUER_URL'),
-    'DIRECTOR_OIDC_ISSUER_URL',
-  );
+  const configuredIssuerUrl = required(env, 'DIRECTOR_OIDC_ISSUER_URL');
+  exactHttpsUrl(configuredIssuerUrl, 'DIRECTOR_OIDC_ISSUER_URL');
   const redirectUri = exactHttpsUrl(
     required(env, 'DIRECTOR_OIDC_REDIRECT_URI'),
     'DIRECTOR_OIDC_REDIRECT_URI',
@@ -362,7 +360,7 @@ function configuredOidcAuthentication(
   }
   return {
     providerCode,
-    issuerUrl: issuerUrl.href,
+    issuerUrl: configuredIssuerUrl,
     clientId: required(env, 'DIRECTOR_OIDC_CLIENT_ID'),
     clientSecret: requiredSecret(
       env,

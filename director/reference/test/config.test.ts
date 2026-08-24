@@ -167,6 +167,15 @@ describe('Director runtime configuration', () => {
     });
   });
 
+  it('preserves a root issuer URL exactly for OIDC metadata comparison', () => {
+    const config = loadDirectorConfig({
+      ...protectedEnvironment(),
+      ...validOidcEnvironment(),
+    });
+
+    expect(config.oidcAuthentication?.issuerUrl).toBe('https://idp.example.com');
+  });
+
   it('loads a dedicated outbound Gateway mTLS identity', () => {
     const config = loadDirectorConfig({
       ...protectedEnvironment(),

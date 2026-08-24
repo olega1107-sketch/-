@@ -26,6 +26,7 @@
     "lint": "eslint .",
     "oidc:preflight": "node --import tsx scripts/oidc-preflight.ts",
     "oidc:provision": "node --import tsx scripts/oidc-provision.ts",
+    "oidc:provision:runtime": "node dist/oidc-provision-cli.js",
     "oidc:revoke-access": "node --import tsx scripts/oidc-revoke-access.ts",
     "password:hash": "tsx scripts/hash-local-password.ts",
     "test": "vitest run"

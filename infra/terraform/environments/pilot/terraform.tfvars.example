@@ -16,7 +16,7 @@ kubernetes_max_nodes  = 3
 # A separate static pool for the in-cluster internal inference workload.
 # It remains disabled until a reviewed Terraform apply explicitly enables it.
 internal_inference_node_pool_enabled = false
-internal_inference_node_size         = "s-4vcpu-16gb"
+internal_inference_node_size         = "s-4vcpu-16gb-amd"
 internal_inference_node_count        = 1
 
 postgres_version       = "16"

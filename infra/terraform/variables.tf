@@ -67,7 +67,7 @@ variable "internal_inference_node_pool_enabled" {
 variable "internal_inference_node_size" {
   description = "DOKS Droplet size for the dedicated internal inference node pool."
   type        = string
-  default     = "s-4vcpu-16gb"
+  default     = "s-4vcpu-16gb-amd"
 }
 
 variable "internal_inference_node_count" {

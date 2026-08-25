@@ -122,6 +122,17 @@ dd { margin: 3px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospac
 .lookup-controls input:focus, .field input:focus, .field textarea:focus, .field select:focus { outline: 2px solid rgba(23,107,77,.2); border-color: var(--green); }
 .decision-region[aria-busy="true"] { opacity: .55; }
 .decision-empty { min-height: 280px; display: grid; place-items: center; align-content: center; color: var(--muted); }
+.workbench-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px; }
+.workbench-panel { display: grid; align-content: start; gap: 16px; padding: 22px; border: 1px solid var(--line); border-radius: 6px; background: #fff; }
+.workbench-panel h2 { margin: 0; font-size: 18px; }
+.workbench-panel .eyebrow { margin: 0 0 5px; }
+.context-panel { margin-top: 22px; }
+.context-candidates { display: grid; gap: 8px; }
+.context-candidate { display: grid; grid-template-columns: 20px minmax(0, 1fr); gap: 10px; align-items: start; padding: 12px; border: 1px solid var(--line); border-radius: 6px; cursor: pointer; }
+.context-candidate:has(input:checked) { border-color: var(--green); background: var(--green-soft); }
+.context-candidate input { margin-top: 2px; accent-color: var(--green); }
+.context-candidate strong, .context-candidate small { display: block; overflow-wrap: anywhere; }
+.context-candidate small, .muted-copy { margin: 5px 0 0; color: var(--muted); font-size: 13px; line-height: 1.45; }
 .decision-empty svg { width: 34px; height: 34px; margin-bottom: 14px; color: var(--green); }
 .decision-empty h2 { margin: 0; color: var(--text); font-size: 17px; }
 .decision-detail { display: grid; gap: 30px; }
@@ -223,6 +234,7 @@ dd { margin: 3px 0 0; font-family: ui-monospace, SFMono-Regular, Menlo, monospac
   .content { padding: 28px 18px 96px; }
   .confirmation-card { grid-template-columns: 40px minmax(0, 1fr); }
   .decision-summary { grid-template-columns: 1fr; }
+  .workbench-grid { grid-template-columns: 1fr; }
   .provenance-grid { grid-template-columns: 1fr; }
   .source-row { grid-template-columns: minmax(0, 1fr) 38px; }
   .source-row .source-id { grid-column: 1 / -1; grid-row: 2; }

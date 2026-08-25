@@ -30,10 +30,15 @@ import {
   listConfirmations,
   listProjects,
   login,
+  createTask,
+  createAgentRun,
+  getMemoryObject,
   logout,
   oidcLoginUrl,
   requestDecisionApproval,
   supersedeDecision,
+  searchTaskContext,
+  uploadMemoryObject,
   type Confirmation,
   type ConfirmationStatus,
   type DecisionCreateInput,
@@ -42,6 +47,7 @@ import {
   type Project,
   type RelationshipEndpointType,
   type RelationshipType,
+  type TaskContextCandidate,
 } from './api.js';
 import { expiryLabel, formatDate, operationLabel, shortId, statusLabels } from './format.js';
 import './style.css';
@@ -74,7 +80,9 @@ let nextCursor: string | null = null;
 let pendingCountLabel = '0';
 let pendingDecision: { confirmation: Confirmation; action: 'approve' | 'reject' } | null = null;
 let toastTimer: number | undefined;
-let currentView: 'confirmations' | 'decisions' = 'confirmations';
+let currentView: 'confirmations' | 'decisions' | 'workbench' = 'confirmations';
+let currentTask: { id: string; title: string; request: string } | null = null;
+let contextCandidates: TaskContextCandidate[] = [];
 let currentDecisionId: string | null = null;
 let sourceRowSequence = 0;
 let decisionFormMode: 'create' | 'supersede' = 'create';
@@ -113,6 +121,16 @@ const confirmationsView = required<HTMLElement>('confirmations-view');
 const decisionsView = required<HTMLElement>('decisions-view');
 const confirmationsNav = required<HTMLButtonElement>('confirmations-nav');
 const decisionsNav = required<HTMLButtonElement>('decisions-nav');
+const workbenchNav = required<HTMLButtonElement>('workbench-nav');
+const workbenchView = required<HTMLElement>('workbench-view');
+const uploadForm = required<HTMLFormElement>('upload-form');
+const taskForm = required<HTMLFormElement>('task-form');
+const contextPanel = required<HTMLElement>('context-panel');
+const contextCandidatesRegion = required<HTMLElement>('context-candidates');
+const taskSummary = required<HTMLElement>('task-summary');
+const agentInstructions = required<HTMLTextAreaElement>('agent-instructions');
+const runAgentButton = required<HTMLButtonElement>('run-agent-button');
+const workbenchError = required<HTMLElement>('workbench-error');
 const decisionLookupForm = required<HTMLFormElement>('decision-lookup-form');
 const decisionIdInput = required<HTMLInputElement>('decision-id-input');
 const decisionRegion = required<HTMLElement>('decision-region');
@@ -157,6 +175,10 @@ logoutButton.addEventListener('click', () => void signOut());
 dialog.addEventListener('close', () => void finishDecision());
 confirmationsNav.addEventListener('click', () => selectWorkspaceView('confirmations'));
 decisionsNav.addEventListener('click', () => selectWorkspaceView('decisions'));
+workbenchNav.addEventListener('click', () => selectWorkspaceView('workbench'));
+uploadForm.addEventListener('submit', (event) => void submitUpload(event));
+taskForm.addEventListener('submit', (event) => void submitTask(event));
+runAgentButton.addEventListener('click', () => void submitAgentRun());
 decisionLookupForm.addEventListener('submit', (event) => void lookupDecision(event));
 newDecisionButton.addEventListener('click', () => openCreateDecisionDialog());
 createDialogClose.addEventListener('click', () => createDecisionDialog.close());
@@ -243,18 +265,76 @@ function updateProjectLabel(): void {
 }
 
 function selectWorkspaceView(
-  view: 'confirmations' | 'decisions',
+  view: 'confirmations' | 'decisions' | 'workbench',
   refresh = true,
 ): void {
   currentView = view;
   confirmationsView.hidden = view !== 'confirmations';
   decisionsView.hidden = view !== 'decisions';
+  workbenchView.hidden = view !== 'workbench';
   confirmationsNav.classList.toggle('active', view === 'confirmations');
   decisionsNav.classList.toggle('active', view === 'decisions');
+  workbenchNav.classList.toggle('active', view === 'workbench');
   if (view === 'confirmations' && refresh) {
     void loadQueue(true);
   }
 }
+
+async function submitUpload(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  if (!uploadForm.reportValidity() || projectSelect.value.length === 0) return;
+  const data = new FormData(uploadForm);
+  const file = data.get('file');
+  if (!(file instanceof File) || file.size === 0) return;
+  const submit = uploadForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+  setBusy(submit, true);
+  try {
+    await uploadMemoryObject({ project_id: projectSelect.value, title: String(data.get('title') ?? ''), type: 'document', sensitivity_level: String(data.get('sensitivity_level')) as DecisionCreateInput['sensitivity_level'], file });
+    uploadForm.reset(); showToast('Документ добавлен в память');
+  } catch (error) { showWorkbenchError(error); } finally { setBusy(submit, false); }
+}
+
+async function submitTask(event: SubmitEvent): Promise<void> {
+  event.preventDefault();
+  if (!taskForm.reportValidity() || projectSelect.value.length === 0) return;
+  const data = new FormData(taskForm); const submit = taskForm.querySelector<HTMLButtonElement>('button[type="submit"]');
+  setBusy(submit, true); workbenchError.hidden = true;
+  try {
+    const title = String(data.get('title') ?? '').trim(); const request = String(data.get('user_request') ?? '').trim();
+    const task = await createTask({ project_id: projectSelect.value, title, user_request: request });
+    const matches = await searchTaskContext(task.id, request);
+    currentTask = { id: task.id, title, request }; contextCandidates = matches.candidates;
+    renderContextCandidates(); contextPanel.hidden = false; taskSummary.textContent = title;
+    contextPanel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (error) { showWorkbenchError(error); } finally { setBusy(submit, false); }
+}
+
+function renderContextCandidates(): void {
+  contextCandidatesRegion.replaceChildren(...contextCandidates.map((candidate) => {
+    const label = document.createElement('label'); label.className = 'context-candidate';
+    label.innerHTML = `<input type="checkbox" value="${escapeHtml(candidate.memory_object_id)}" /><span><strong>${escapeHtml(candidate.title)}</strong><small>${escapeHtml(candidate.reason)}</small></span>`;
+    return label;
+  }));
+}
+
+async function submitAgentRun(): Promise<void> {
+  if (currentTask === null) return;
+  const selected = [...contextCandidatesRegion.querySelectorAll<HTMLInputElement>('input:checked')];
+  if (selected.length === 0 || agentInstructions.value.trim().length === 0) { showWorkbenchError(new Error('Выберите хотя бы один документ и добавьте инструкцию.')); return; }
+  setBusy(runAgentButton, true); workbenchError.hidden = true;
+  try {
+    const context = await Promise.all(selected.map(async (item) => {
+      const memory = await getMemoryObject(item.value);
+      if (memory.current_version === null) throw new Error(`Для «${memory.title}» нет доступной версии.`);
+      return { memory_object_id: memory.id, document_version_id: memory.current_version.id, access_reason: currentTask!.request };
+    }));
+    const run = await createAgentRun(currentTask.id, { agent_type: 'architect', purpose: currentTask.title, instructions: agentInstructions.value.trim(), context });
+    showToast(run.status === 'awaiting_user_confirmation' ? 'Запуск ожидает подтверждения' : 'Анализ запущен');
+    if (run.status === 'awaiting_user_confirmation') selectWorkspaceView('confirmations');
+  } catch (error) { showWorkbenchError(error); } finally { setBusy(runAgentButton, false); }
+}
+
+function showWorkbenchError(error: unknown): void { workbenchError.textContent = messageFor(error); workbenchError.hidden = false; }
 
 async function refreshCurrentView(): Promise<void> {
   if (currentView === 'confirmations') {

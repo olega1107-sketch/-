@@ -101,6 +101,40 @@ export interface DecisionSupersedeResponse {
   new_decision: Decision;
 }
 
+export interface MemoryObject {
+  id: string;
+  project_id: string;
+  type: string;
+  title: string;
+  summary: string | null;
+  sensitivity_level: SensitivityLevel;
+  current_version: { id: string; file_name: string; version_number: number } | null;
+}
+
+export interface Task {
+  id: string;
+  project_id: string;
+  title: string;
+  user_request: string;
+  status: string;
+}
+
+export interface TaskContextCandidate {
+  memory_object_id: string;
+  title: string;
+  summary: string | null;
+  reason: string;
+  sensitivity_level: SensitivityLevel;
+}
+
+export interface AgentRun {
+  id: string;
+  task_id: string;
+  status: string;
+  provider: string;
+  deployment_class: 'internal' | 'external';
+}
+
 export interface DecisionProvenance {
   decision: Decision;
   provenance_complete: true;
@@ -271,6 +305,45 @@ export function supersedeDecision(
   });
 }
 
+export async function uploadMemoryObject(input: {
+  project_id: string;
+  title: string;
+  type: string;
+  sensitivity_level: SensitivityLevel;
+  file: File;
+}): Promise<MemoryObject> {
+  const body = new FormData();
+  body.set('project_id', input.project_id);
+  body.set('title', input.title);
+  body.set('type', input.type);
+  body.set('sensitivity_level', input.sensitivity_level);
+  body.set('file', input.file);
+  return apiRequest('/memory-objects:upload', { method: 'POST', body });
+}
+
+export function createTask(input: { project_id: string; title: string; user_request: string }): Promise<Task> {
+  return apiRequest('/tasks', { method: 'POST', body: JSON.stringify(input) });
+}
+
+export function searchTaskContext(taskId: string, query: string): Promise<{ candidates: TaskContextCandidate[] }> {
+  return apiRequest(`/tasks/${encodeURIComponent(taskId)}/context:search`, {
+    method: 'POST', body: JSON.stringify({ query, limit: 20 }),
+  });
+}
+
+export function getMemoryObject(memoryObjectId: string): Promise<MemoryObject> {
+  return apiRequest(`/memory-objects/${encodeURIComponent(memoryObjectId)}`);
+}
+
+export function createAgentRun(taskId: string, input: {
+  agent_type: string; purpose: string; instructions: string;
+  context: Array<{ memory_object_id: string; document_version_id: string; access_reason: string }>;
+}): Promise<AgentRun> {
+  return apiRequest(`/tasks/${encodeURIComponent(taskId)}/agent-runs`, {
+    method: 'POST', body: JSON.stringify(input),
+  });
+}
+
 async function apiRequest<T>(
   path: string,
   options: RequestInit & { authenticated?: boolean } = {},
@@ -279,7 +352,7 @@ async function apiRequest<T>(
   const authenticated = options.authenticated ?? true;
   const headers = new Headers(options.headers);
   headers.set('x-request-id', crypto.randomUUID());
-  if (options.body !== undefined) headers.set('content-type', 'application/json');
+  if (options.body !== undefined && !(options.body instanceof FormData)) headers.set('content-type', 'application/json');
   const bearer = authenticated ? token() : null;
   if (bearer !== null) headers.set('authorization', `Bearer ${bearer}`);
   const response = await fetch(`${apiBase}${path}`, {

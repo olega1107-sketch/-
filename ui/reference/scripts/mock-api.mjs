@@ -9,6 +9,12 @@ const sourceVersionId = '70000000-0000-4000-8000-000000000002';
 const sourceRunId = '70000000-0000-4000-8000-000000000003';
 const decisions = new Map();
 const confirmationEffects = new Map();
+const memories = new Map([[sourceMemoryId, {
+  id: sourceMemoryId, project_id: projectId, type: 'document', title: 'Пилотный документ',
+  summary: 'Синтетический документ для проверки пользовательского пути.', sensitivity_level: 'internal',
+  current_version: { id: sourceVersionId, file_name: 'pilot-note.txt', version_number: 1 },
+}]]);
+const tasks = new Map();
 
 const base = {
   project_id: projectId,
@@ -77,6 +83,35 @@ const server = createServer(async (request, response) => {
   if (request.method === 'GET' && url.pathname === '/api/v1/confirmations') {
     const status = url.searchParams.get('status') ?? 'pending';
     return json(response, 200, { items: status === 'pending' ? pending : [], next_cursor: null });
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/memory-objects:upload') {
+    const id = crypto.randomUUID();
+    const memory = {
+      id, project_id: projectId, type: 'document', title: 'Новый документ', summary: null,
+      sensitivity_level: 'internal', current_version: { id: crypto.randomUUID(), file_name: 'upload.txt', version_number: 1 },
+    };
+    memories.set(id, memory);
+    return json(response, 201, memory);
+  }
+  if (request.method === 'POST' && url.pathname === '/api/v1/tasks') {
+    const input = await jsonBody(request); const id = crypto.randomUUID();
+    const task = { id, project_id: input.project_id, title: input.title, user_request: input.user_request, status: 'awaiting_context' };
+    tasks.set(id, task); return json(response, 201, task);
+  }
+  const contextMatch = url.pathname.match(/^\/api\/v1\/tasks\/([^/]+)\/context:search$/);
+  if (request.method === 'POST' && contextMatch !== null) {
+    const task = tasks.get(contextMatch[1]); if (task === undefined) return json(response, 404, { error: { code: 'not_found' } });
+    return json(response, 200, { task_id: task.id, candidates: [...memories.values()].map((memory) => ({ memory_object_id: memory.id, title: memory.title, summary: memory.summary, reason: 'Совпадает с запросом задачи', sensitivity_level: memory.sensitivity_level })) });
+  }
+  const memoryMatch = url.pathname.match(/^\/api\/v1\/memory-objects\/([^/]+)$/);
+  if (request.method === 'GET' && memoryMatch !== null) {
+    const memory = memories.get(memoryMatch[1]);
+    return memory === undefined ? json(response, 404, { error: { code: 'not_found' } }) : json(response, 200, memory);
+  }
+  const runMatch = url.pathname.match(/^\/api\/v1\/tasks\/([^/]+)\/agent-runs$/);
+  if (request.method === 'POST' && runMatch !== null) {
+    const task = tasks.get(runMatch[1]); if (task === undefined) return json(response, 404, { error: { code: 'not_found' } });
+    return json(response, 202, { id: crypto.randomUUID(), task_id: task.id, status: 'awaiting_user_confirmation', provider: 'openai', deployment_class: 'external' });
   }
   if (request.method === 'POST' && url.pathname === '/api/v1/decisions') {
     const input = await jsonBody(request);

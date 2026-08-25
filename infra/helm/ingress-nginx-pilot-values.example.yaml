@@ -1,0 +1,7 @@
+# Copy outside Git and replace the documentation CIDR with the exact operator or
+# WAF egress CIDRs. The public-anywhere range 0.0.0.0/0 is prohibited.
+controller:
+  service:
+    externalTrafficPolicy: Local
+    loadBalancerSourceRanges:
+      - 203.0.113.10/32

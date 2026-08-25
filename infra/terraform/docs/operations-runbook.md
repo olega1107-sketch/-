@@ -51,4 +51,13 @@ helm upgrade --install cert-manager jetstack/cert-manager --namespace cert-manag
 - HTTPS certificate is valid for the pilot domain.
 - OIDC login works in the pilot domain.
 - Monitoring shows app, ingress, node, and database health.
+
+## Restricting the public ingress
+
+The pilot ingress controller currently has a public LoadBalancer. Before allowing
+real users, copy `infra/helm/ingress-nginx-pilot-values.example.yaml` outside Git,
+replace its documentation CIDR with exact trusted operator or WAF egress CIDRs,
+then run a Helm server-side dry-run and a canary from an allowed address. Do not
+apply `0.0.0.0/0`, do not change the application Services, and keep a verified
+rollback values file until the external HTTPS check passes.
 - PostgreSQL restore has been tested and documented.

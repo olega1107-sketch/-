@@ -1,0 +1,109 @@
+name: Pilot application canary
+
+on:
+  workflow_dispatch:
+    inputs:
+      execution_id:
+        description: New approved canary execution identifier
+        required: true
+        type: string
+      marker:
+        description: New lowercase marker for persistent canary artifacts
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-application-canary
+  cancel-in-progress: false
+
+env:
+  NODE_VERSION: 24.19.0
+
+jobs:
+  canary:
+    name: Execute protected application canary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: digitalocean-pilot
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Validate request and materialize protected inputs
+        shell: bash
+        env:
+          EXECUTION_ID: ${{ inputs.execution_id }}
+          MARKER: ${{ inputs.marker }}
+          CANARY_CONFIG: ${{ secrets.DIRIZHOR_APPLICATION_CANARY_CONFIG }}
+          CANARY_SESSION_TOKEN: ${{ secrets.DIRIZHOR_APPLICATION_CANARY_SESSION_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${EXECUTION_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$ ]]; then
+            echo 'execution_id is invalid' >&2
+            exit 1
+          fi
+          if [[ ! "${MARKER}" =~ ^[a-z][a-z0-9-]{7,63}$ ]]; then
+            echo 'marker is invalid' >&2
+            exit 1
+          fi
+          test -n "${CANARY_CONFIG}"
+          test -n "${CANARY_SESSION_TOKEN}"
+          echo "::add-mask::${CANARY_CONFIG}"
+          echo "::add-mask::${CANARY_SESSION_TOKEN}"
+
+          input_directory="${RUNNER_TEMP}/application-canary-inputs"
+          install -d -m 0700 "${input_directory}"
+          printf '%s' "${CANARY_CONFIG}" > "${input_directory}/config-template.json"
+          printf '%s\n' "${CANARY_SESSION_TOKEN}" > "${input_directory}/session-token"
+          chmod 0600 "${input_directory}/config-template.json" "${input_directory}/session-token"
+
+          jq \
+            --arg execution_id "${EXECUTION_ID}" \
+            --arg marker "${MARKER}" \
+            --arg token_file "${input_directory}/session-token" \
+            '.execution_id = $execution_id
+             | .application.marker = $marker
+             | .session.token_file = $token_file' \
+            "${input_directory}/config-template.json" > "${input_directory}/config.json"
+          chmod 0600 "${input_directory}/config.json"
+          printf 'CANARY_INPUT_DIRECTORY=%s\n' "${input_directory}" >> "${GITHUB_ENV}"
+
+      - name: Run application canary
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_directory="${RUNNER_TEMP}/application-canary-evidence"
+          install -d -m 0700 "${output_directory}"
+          node deploy/reference/scripts/application-canary.mjs \
+            "${output_directory}" \
+            "${CANARY_INPUT_DIRECTORY}/config.json"
+          printf 'CANARY_EVIDENCE_DIRECTORY=%s\n' "${output_directory}" >> "${GITHUB_ENV}"
+
+      - name: Retain non-secret canary evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pilot-application-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/application-canary-evidence/application-canary-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove protected inputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "${CANARY_INPUT_DIRECTORY}/config-template.json" \
+            "${CANARY_INPUT_DIRECTORY}/config.json" \
+            "${CANARY_INPUT_DIRECTORY}/session-token"

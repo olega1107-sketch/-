@@ -110,6 +110,26 @@ Exit codes:
   `NOT_RUN`;
 - `2`: invocation/config/output некорректны, запуск нельзя считать canary.
 
+### GitHub protected workflow
+
+Для Pilot доступен ручной workflow `Pilot application canary`. Он не запускается
+после push или OCI release автоматически: сценарий создаёт persistent synthetic
+artifacts и требует новую browser-issued canary session.
+
+В Environment `digitalocean-pilot` оператор хранит только два защищённых значения:
+
+1. `DIRIZHOR_APPLICATION_CANARY_CONFIG` — JSON по этому примеру, без session
+   token; workflow самостоятельно заменяет `execution_id`, marker и локальный
+   `session.token_file`.
+2. `DIRIZHOR_APPLICATION_CANARY_SESSION_TOKEN` — свежий одноразовый cookie value
+   выделенной canary identity. Значение нельзя помещать в Git, issue, shell history,
+   workflow inputs или evidence artifact.
+
+Перед каждым запуском задаются новый `execution_id` и новый lowercase marker.
+Environment approval остаётся обязательным. После завершения токен удаляется из
+Environment либо заменяется новым; runner удаляет локальные protected inputs, а
+в GitHub сохраняет только `application-canary-evidence.json` на 30 дней.
+
 Output directory получает mode `0700`,
 `application-canary-evidence.json` — `0600`. Сценарий может занять до двух
 `poll_timeout_ms` плюс HTTP operations.

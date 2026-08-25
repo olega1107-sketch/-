@@ -12,6 +12,9 @@ directly.
 - optional local session login through `POST /api/v1/auth/sessions`, with its
   fallback bearer kept only in `sessionStorage`;
 - readable project selection through `GET /api/v1/projects`;
+- document upload through the Director public boundary;
+- task creation, server-side context discovery, explicit source selection and AI dispatch;
+- retrieval of the exact document version only after a user selects a context candidate;
 - pending/completed/rejected confirmation views;
 - opaque-cursor pagination;
 - confirmation details without internal `frozen_payload`;
@@ -24,6 +27,18 @@ directly.
 - approval requests for `draft`/`proposed` decisions and supersede requests for
   `approved` decisions, both routed into the existing confirmation inbox;
 - responsive desktop and mobile layouts.
+
+## Primary pilot flow
+
+1. Select a project and add a document to its memory registry.
+2. Create a task in **Работа с AI**.
+3. Review and select only the server-returned context candidates.
+4. Add an instruction and start the configured agent route.
+5. Approve a confirmation when the Director requires it, then use the existing
+   decision and provenance views to preserve the result and record a decision.
+
+The browser never receives service credentials, database access, provider
+credentials, or unselected document content.
 
 ## Development
 

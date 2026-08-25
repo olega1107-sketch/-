@@ -39,4 +39,10 @@ resource "digitalocean_kubernetes_node_pool" "internal_inference" {
   labels = {
     "dirizhor.io/workload" = "internal-inference"
   }
+
+  taint {
+    key    = "dirizhor.io/workload"
+    value  = "internal-inference"
+    effect = "NoSchedule"
+  }
 }

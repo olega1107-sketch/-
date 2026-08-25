@@ -51,8 +51,10 @@ terraform plan -var-file=environments/pilot/terraform.tfvars
 ```
 
 The internal inference node pool remains disabled by default. Its reviewed plan
-must show exactly one new `s-4vcpu-16gb` pool and no changes to the existing
+must show exactly one new `s-4vcpu-16gb-amd` pool and no changes to the existing
 worker pool, database, registry, or network resources.
+The pool is labeled and tainted `dirizhor.io/workload=internal-inference` so
+ordinary application Pods cannot consume its reserved capacity.
 
 Do not run this until the plan has been reviewed and explicitly approved:
 

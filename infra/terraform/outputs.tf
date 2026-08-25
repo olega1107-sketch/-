@@ -13,6 +13,11 @@ output "kubernetes_cluster_name" {
   value       = digitalocean_kubernetes_cluster.pilot.name
 }
 
+output "internal_inference_node_pool_id" {
+  description = "ID of the dedicated internal inference node pool, or null when disabled."
+  value       = try(digitalocean_kubernetes_node_pool.internal_inference[0].id, null)
+}
+
 output "container_registry_name" {
   description = "DigitalOcean Container Registry name."
   value       = digitalocean_container_registry.pilot.name

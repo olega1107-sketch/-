@@ -58,6 +58,24 @@ variable "kubernetes_max_nodes" {
   default     = 4
 }
 
+variable "internal_inference_node_pool_enabled" {
+  description = "Create the dedicated DOKS node pool for the in-cluster internal inference workload."
+  type        = bool
+  default     = false
+}
+
+variable "internal_inference_node_size" {
+  description = "DOKS Droplet size for the dedicated internal inference node pool."
+  type        = string
+  default     = "s-4vcpu-16gb"
+}
+
+variable "internal_inference_node_count" {
+  description = "Static node count for the dedicated internal inference node pool."
+  type        = number
+  default     = 1
+}
+
 variable "postgres_version" {
   description = "Managed PostgreSQL major version."
   type        = string
@@ -86,6 +104,12 @@ variable "postgres_user_name" {
   description = "Initial application database user name."
   type        = string
   default     = "dirizher_app"
+}
+
+variable "postgres_firewall_extra_ips" {
+  description = "Additional approved IPv4 addresses allowed to reach the managed PostgreSQL cluster."
+  type        = list(string)
+  default     = []
 }
 
 variable "domain_name" {

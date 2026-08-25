@@ -6,18 +6,27 @@ vpc_ip_range = "10.42.0.0/16"
 
 container_registry_subscription_tier_slug = "basic"
 
-# Leave empty to use DigitalOcean's current latest Kubernetes version.
-kubernetes_version    = ""
+# Pin the currently running DOKS version. Upgrade it in a dedicated reviewed change.
+kubernetes_version    = "1.36.3-do.1"
 kubernetes_node_size  = "s-2vcpu-4gb"
 kubernetes_node_count = 2
 kubernetes_min_nodes  = 2
 kubernetes_max_nodes  = 3
+
+# A separate static pool for the in-cluster internal inference workload.
+# It remains disabled until a reviewed Terraform apply explicitly enables it.
+internal_inference_node_pool_enabled = false
+internal_inference_node_size         = "s-4vcpu-16gb"
+internal_inference_node_count        = 1
 
 postgres_version       = "16"
 postgres_size          = "db-s-1vcpu-1gb"
 postgres_node_count    = 1
 postgres_database_name = "dirizher"
 postgres_user_name     = "dirizher_app"
+
+# Add only explicitly approved operator IPs. Keep this list in the private tfvars.
+postgres_firewall_extra_ips = []
 
 # Fill this later for DNS/TLS stages, for example: pilot.example.com
 domain_name = ""

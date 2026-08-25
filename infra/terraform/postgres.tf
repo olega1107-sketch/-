@@ -34,4 +34,13 @@ resource "digitalocean_database_firewall" "postgres" {
     type  = "k8s"
     value = digitalocean_kubernetes_cluster.pilot.id
   }
+
+  dynamic "rule" {
+    for_each = toset(var.postgres_firewall_extra_ips)
+
+    content {
+      type  = "ip_addr"
+      value = rule.value
+    }
+  }
 }

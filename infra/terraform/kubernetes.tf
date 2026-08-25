@@ -27,3 +27,16 @@ resource "digitalocean_kubernetes_cluster" "pilot" {
     digitalocean_container_registry.pilot
   ]
 }
+
+resource "digitalocean_kubernetes_node_pool" "internal_inference" {
+  count = var.internal_inference_node_pool_enabled ? 1 : 0
+
+  cluster_id = digitalocean_kubernetes_cluster.pilot.id
+  name       = "${local.name_prefix}-inference"
+  size       = var.internal_inference_node_size
+  node_count = var.internal_inference_node_count
+  tags       = concat(local.common_tags, ["dirizhor-internal-inference"])
+  labels = {
+    "dirizhor.io/workload" = "internal-inference"
+  }
+}

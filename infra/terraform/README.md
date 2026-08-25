@@ -50,6 +50,10 @@ terraform validate
 terraform plan -var-file=environments/pilot/terraform.tfvars
 ```
 
+The internal inference node pool remains disabled by default. Its reviewed plan
+must show exactly one new `s-4vcpu-16gb` pool and no changes to the existing
+worker pool, database, registry, or network resources.
+
 Do not run this until the plan has been reviewed and explicitly approved:
 
 ```bash

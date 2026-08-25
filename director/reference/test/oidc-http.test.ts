@@ -236,6 +236,24 @@ describe('OIDC HTTP boundary', () => {
     );
   });
 
+  it('requests explicit account selection without changing the default flow', async () => {
+    const provider = new FakeOidcProvider(providerSubject);
+    ({ fixture, app } = await createOidcApp(provider, true));
+
+    const selected = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/oidc/start?prompt=select_account',
+    });
+    expect(selected.statusCode, selected.body).toBe(302);
+    expect(provider.authorizationRequests[0]?.prompt).toBe('select_account');
+
+    const rejected = await app.inject({
+      method: 'GET',
+      url: '/api/v1/auth/oidc/start?prompt=login',
+    });
+    expect(rejected.statusCode, rejected.body).toBe(400);
+  });
+
   it('does not provision an unknown subject or expose it in audit metadata', async () => {
     const unknownSubject = 'sensitive-unprovisioned-subject';
     ({ fixture, app } = await createOidcApp(new FakeOidcProvider(unknownSubject), false));

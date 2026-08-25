@@ -119,6 +119,7 @@ class OpenidClientProvider implements OidcProviderClient {
       nonce: request.nonce,
       code_challenge: codeChallenge,
       code_challenge_method: 'S256',
+      ...(request.prompt === undefined ? {} : { prompt: request.prompt }),
     });
   }
 

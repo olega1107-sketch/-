@@ -2,6 +2,7 @@ export interface OidcAuthorizationRequest {
   state: string;
   nonce: string;
   codeVerifier: string;
+  prompt?: 'select_account';
 }
 
 export interface OidcCallbackRequest {

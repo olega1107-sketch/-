@@ -46,6 +46,7 @@ import {
   BrowserAuthenticationHeadersSchema,
   OidcCallbackQuerySchema,
   OidcLogoutResponseSchema,
+  OidcStartQuerySchema,
 } from './oidc-protocol.js';
 import type { OidcService } from './oidc-service.js';
 import type { ServiceAuthenticator } from './ports.js';
@@ -223,12 +224,14 @@ export function buildDirectorApp(options: DirectorAppOptions) {
           {
             schema: {
               headers: BrowserAuthenticationHeadersSchema,
+              querystring: OidcStartQuerySchema,
             },
           },
           async (request, reply) => {
             const requestId = requestIdFor(request);
             const started = await sessions.oidc!.service.startLogin(
               sessionRequestContext(request, requestId),
+              request.query.prompt,
             );
             return reply
               .header('x-request-id', requestId)

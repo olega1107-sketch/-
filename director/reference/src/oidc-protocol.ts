@@ -9,6 +9,14 @@ export const BrowserAuthenticationHeadersSchema = Type.Object(
   { additionalProperties: true },
 );
 
+export const OidcStartQuerySchema = Type.Object(
+  {
+    prompt: Type.Optional(Type.Literal('select_account')),
+  },
+  { additionalProperties: false },
+);
+export type OidcStartQuery = Static<typeof OidcStartQuerySchema>;
+
 export const OidcCallbackQuerySchema = Type.Object(
   {
     code: Type.Optional(Type.String({ minLength: 1, maxLength: 8192 })),

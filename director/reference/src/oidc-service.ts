@@ -67,7 +67,10 @@ export class OidcService {
     this.transactionTtlMs = transactionTtl(options.transactionTtlMs ?? 10 * 60 * 1_000);
   }
 
-  async startLogin(context: SessionRequestContext): Promise<StartedOidcLogin> {
+  async startLogin(
+    context: SessionRequestContext,
+    prompt?: 'select_account',
+  ): Promise<StartedOidcLogin> {
     const browserToken = this.nextValue('browser token');
     const state = this.nextValue('state');
     const nonce = this.nextValue('nonce');
@@ -76,6 +79,7 @@ export class OidcService {
       state,
       nonce,
       codeVerifier,
+      ...(prompt === undefined ? {} : { prompt }),
     });
     const now = this.clock.now();
     const createdAt = now.toISOString();

@@ -12,7 +12,8 @@
     "check": "tsc -b --pretty false",
     "dev": "vite",
     "preview": "vite preview",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:workflow": "node scripts/workflow-smoke.mjs"
   },
   "dependencies": {
     "lucide": "^1.31.0"

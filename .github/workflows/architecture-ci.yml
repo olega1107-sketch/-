@@ -84,6 +84,14 @@ jobs:
       - name: Test
         run: pnpm test --maxWorkers=2
 
+      - name: Verify document-to-agent workflow
+        if: matrix.component == 'ui'
+        run: |
+          node scripts/mock-api.mjs &
+          mock_pid=$!
+          trap 'kill "$mock_pid"' EXIT
+          node scripts/workflow-smoke.mjs
+
       - name: Build
         run: pnpm build
 

@@ -18,4 +18,7 @@ test('internal inference release is manual, protected, immutable, and fail-close
   assert.match(workflow, /cosign sign --yes/);
   assert.match(workflow, /cosign attest --yes --type cyclonedx/);
   assert.match(workflow, /docker logout/);
+  assert.match(workflow, /inference-adapter:\$\{RELEASE_SUFFIX\}-adapter/);
+  assert.match(workflow, /inference-adapter:\$\{RELEASE_SUFFIX\}-model/);
+  assert.doesNotMatch(workflow, /\/inference-model:/);
 });

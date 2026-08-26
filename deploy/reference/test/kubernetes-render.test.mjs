@@ -251,9 +251,18 @@ test('schema v4 external-only example stays renderable', async () => {
 test('schema v4 keeps the dual-provider contract when an internal provider is configured', () => {
   const config = validConfig();
   config.schema_version = 4;
+  config.networking.internal_provider_egress_cidrs = [];
   const normalized = validateKubernetesTargetConfig(config);
   assert.equal(normalized.internal_provider.origin, config.internal_provider.origin);
-  assert.equal(validateRenderedResources(allResources(buildKubernetesBundles(normalized)), normalized).status, 'ok');
+  const resources = allResources(buildKubernetesBundles(normalized));
+  assert.equal(validateRenderedResources(resources, normalized).status, 'ok');
+  const gatewayPolicy = resources.find(
+    (resource) => resource.kind === 'NetworkPolicy' && resource.metadata.name === 'dirizhor-gateway',
+  );
+  assert.ok(gatewayPolicy.spec.egress.some((rule) => (
+    rule.to?.some((peer) => peer.podSelector?.matchLabels?.['app.kubernetes.io/name'] === 'dirizhor-inference') &&
+    rule.ports?.some((entry) => entry.port === 8443)
+  )));
 });
 
 test('schema v4 external-only target rejects internal provider remnants', () => {

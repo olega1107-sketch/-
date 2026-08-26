@@ -613,6 +613,10 @@ function networkPolicies(config) {
       ingress: [podIngress('director', 8443)],
       egress: [
         podEgress('director', 8444),
+        ...(config.internal_provider === null ? [] : [{
+          to: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'dirizhor-inference' } } }],
+          ports: [{ protocol: 'TCP', port: 8443 }],
+        }]),
         ...config.networking.internal_provider_egress_cidrs.map((cidr) => portPeer(cidr, 443)),
         ...config.networking.ai_provider_egress_cidrs.map((cidr) => portPeer(cidr, 443)),
       ],
@@ -820,7 +824,7 @@ function validateNetworking(networking, schemaVersion, internalProviderEnabled) 
   }
   for (const key of ['trusted_proxy_cidrs', 'postgresql_cidrs', 'internal_provider_egress_cidrs']) {
     validateCidrs(networking[key], key, {
-      allowEmpty: key === 'internal_provider_egress_cidrs' && schemaVersion >= 4 && !internalProviderEnabled,
+      allowEmpty: key === 'internal_provider_egress_cidrs' && schemaVersion >= 4,
     });
   }
   if (!internalProviderEnabled && networking.internal_provider_egress_cidrs.length !== 0) {

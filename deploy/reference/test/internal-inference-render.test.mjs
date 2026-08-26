@@ -20,6 +20,8 @@ test('renders an isolated internal inference deployment on the dedicated worker'
   const modelRuntime = deployment.spec.template.spec.containers.find((container) => container.name === 'model-runtime');
   assert.match(modelRuntime.args[0], /--offline/);
   assert.match(modelRuntime.args[0], /cat \/model-parts\/part-\*/);
+  assert.deepEqual(modelRuntime.startupProbe.exec.command, ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health']);
+  assert.deepEqual(modelRuntime.livenessProbe.exec.command, ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health']);
   assert.deepEqual(policy.spec.egress, []);
   assert.equal(policy.spec.ingress[0].from[0].podSelector.matchLabels['app.kubernetes.io/name'], 'dirizhor-gateway');
 });

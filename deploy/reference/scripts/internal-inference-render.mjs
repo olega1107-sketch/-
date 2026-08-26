@@ -96,8 +96,9 @@ export function renderInternalInference(config) {
               command: ['/bin/sh', '-ec'],
               args: [`cat /model-parts/part-* > ${value.model.path}\nexec /app/llama-server --model ${value.model.path} --alias ${value.model.id} --host 127.0.0.1 --port 8080 --threads 4 --threads-batch 4 --ctx-size 8192 --parallel 1 --batch-size 512 --ubatch-size 128 --offline --no-webui`],
               volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }, { name: 'model-work', mountPath: '/model-work' }],
-              startupProbe: { httpGet: { path: '/health', port: 8080, scheme: 'HTTP' }, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 60 },
-              livenessProbe: { httpGet: { path: '/health', port: 8080, scheme: 'HTTP' }, periodSeconds: 30, timeoutSeconds: 3, failureThreshold: 3 },
+              // llama.cpp is intentionally bound to loopback; kubelet HTTP probes use the Pod IP.
+              startupProbe: { exec: { command: ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health'] }, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 60 },
+              livenessProbe: { exec: { command: ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health'] }, periodSeconds: 30, timeoutSeconds: 3, failureThreshold: 3 },
               resources: value.resources.model_runtime,
               securityContext,
             },

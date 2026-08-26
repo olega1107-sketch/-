@@ -6,6 +6,7 @@ FROM ${NODE_RUNTIME_IMAGE}
 ARG NODE_RUNTIME_IMAGE
 ARG PNPM_VERSION
 RUN node -e 'const p=/^[^@\s]+@sha256:[0-9a-f]{64}$/; if (!p.test(process.env.NODE_RUNTIME_IMAGE || "")) process.exit(1)' && \
+    apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 && \
     test "${PNPM_VERSION}" = "11.18.0" && \
     corepack enable && \
     corepack prepare "pnpm@${PNPM_VERSION}" --activate && \

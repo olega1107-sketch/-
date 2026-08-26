@@ -19,6 +19,7 @@ const dockerfileProfiles = [
       'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
       'pnpm install --frozen-lockfile --offline --ignore-scripts',
       'pnpm prune --prod',
+      'apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
       'rm -rf /usr/local/lib/node_modules/npm',
       'rm -f /usr/local/bin/npm /usr/local/bin/npx',
       'COPY --from=build --chown=10001:10001',
@@ -36,6 +37,7 @@ const dockerfileProfiles = [
       'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
       'pnpm install --frozen-lockfile --offline --ignore-scripts',
       'pnpm prune --prod',
+      'apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
       'rm -rf /usr/local/lib/node_modules/npm',
       'rm -f /usr/local/bin/npm /usr/local/bin/npx',
       'COPY --from=build --chown=10001:10001',
@@ -52,6 +54,7 @@ const dockerfileProfiles = [
       'FROM ${NODE_RUNTIME_IMAGE} AS runtime',
       'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
       'pnpm install --frozen-lockfile --offline --ignore-scripts',
+      'apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
       'rm -rf /usr/local/lib/node_modules/npm',
       'rm -f /usr/local/bin/npm /usr/local/bin/npx',
       'COPY --from=build --chown=10001:10001',
@@ -104,6 +107,7 @@ export async function validateContainerContract({
   await validateDockerIgnore(root);
   await validateEdgeFiles(root);
   await validateInferenceModelDockerfile(root);
+  await validateNodeBuildDockerfile(root);
 
   return {
     status: 'ok',
@@ -191,6 +195,13 @@ async function validateInferenceModelDockerfile(root) {
     /^(?:ARG|ENV)\s+[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY)[A-Z0-9_]*/m.test(contents)
   ) {
     throw new Error('Inference model Dockerfile is missing an immutable model control.');
+  }
+}
+
+async function validateNodeBuildDockerfile(root) {
+  const contents = await readFile(path.join(root, 'deploy/reference/Dockerfile.node-build'), 'utf8');
+  if (!contents.includes('apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0')) {
+    throw new Error('Node build image is missing the approved OpenSSL security patch.');
   }
 }
 

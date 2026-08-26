@@ -24,7 +24,8 @@ RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
 
 FROM ${NODE_RUNTIME_IMAGE} AS runtime
 ENV NODE_ENV=production
-RUN rm -rf /usr/local/lib/node_modules/npm && \
+RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 && \
+    rm -rf /usr/local/lib/node_modules/npm && \
     rm -f /usr/local/bin/npm /usr/local/bin/npx && \
     test ! -e /usr/local/lib/node_modules/npm && \
     test ! -L /usr/local/bin/npm && \

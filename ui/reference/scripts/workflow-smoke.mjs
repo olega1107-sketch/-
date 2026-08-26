@@ -10,6 +10,24 @@ async function request(path, options = {}) {
   return payload;
 }
 
+async function waitForDirector() {
+  const deadline = Date.now() + 5_000;
+  let lastError;
+  while (Date.now() < deadline) {
+    try {
+      await request('/projects');
+      return;
+    } catch (error) {
+      if (error?.cause?.code !== 'ECONNREFUSED') throw error;
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  }
+  throw new Error(`Mock Director API did not become ready: ${lastError?.message ?? 'unknown error'}`);
+}
+
+await waitForDirector();
+
 const upload = new FormData();
 upload.set('project_id', projectId);
 upload.set('title', 'Synthetic workflow document');

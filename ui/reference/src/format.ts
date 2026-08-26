@@ -23,6 +23,18 @@ export function operationLabel(operation: string): string {
   return operationLabels[operation] ?? operation;
 }
 
+export function agentRunStatusLabel(status: string): string {
+  const labels: Record<string, string> = {
+    awaiting_user_confirmation: 'Ожидает подтверждения',
+    queued: 'В очереди',
+    running: 'Выполняется',
+    completed: 'Готово',
+    failed: 'Не выполнено',
+    cancelled: 'Отменено',
+  };
+  return labels[status] ?? status;
+}
+
 export function shortId(value: string): string {
   return value.slice(0, 8);
 }

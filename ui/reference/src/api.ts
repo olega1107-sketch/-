@@ -130,9 +130,29 @@ export interface TaskContextCandidate {
 export interface AgentRun {
   id: string;
   task_id: string;
+  project_id: string;
+  agent_type: string;
   status: string;
   provider: string;
+  model: string | null;
+  purpose: string;
   deployment_class: 'internal' | 'external';
+  error_message: string | null;
+}
+
+export interface AgentRunResult {
+  id: string;
+  agent_run_id: string;
+  project_id: string;
+  content: string;
+  content_type: string;
+  content_hash: string;
+  sensitivity_level: SensitivityLevel;
+  output_summary: string | null;
+  created_at: string;
+  expires_at: string | null;
+  saved_memory_object_id: string | null;
+  saved_at: string | null;
 }
 
 export interface DecisionProvenance {
@@ -342,6 +362,14 @@ export function createAgentRun(taskId: string, input: {
   return apiRequest(`/tasks/${encodeURIComponent(taskId)}/agent-runs`, {
     method: 'POST', body: JSON.stringify(input),
   });
+}
+
+export function getAgentRun(agentRunId: string): Promise<AgentRun> {
+  return apiRequest(`/agent-runs/${encodeURIComponent(agentRunId)}`);
+}
+
+export function getAgentRunResult(agentRunId: string): Promise<AgentRunResult> {
+  return apiRequest(`/agent-runs/${encodeURIComponent(agentRunId)}/result`);
 }
 
 async function apiRequest<T>(

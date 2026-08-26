@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Confirmation } from './api.js';
-import { expiryLabel, operationLabel, shortId } from './format.js';
+import { agentRunStatusLabel, expiryLabel, operationLabel, shortId } from './format.js';
 
 const confirmation: Confirmation = {
   id: '10000000-0000-4000-8000-000000000001',
@@ -33,5 +33,10 @@ describe('confirmation formatters', () => {
       'Осталось 30 мин',
     );
     expect(expiryLabel(confirmation, Date.parse('2030-01-01T11:00:00.000Z'))).toBe('Срок истёк');
+  });
+
+  it('labels agent run states for the workbench', () => {
+    expect(agentRunStatusLabel('awaiting_user_confirmation')).toBe('Ожидает подтверждения');
+    expect(agentRunStatusLabel('completed')).toBe('Готово');
   });
 });

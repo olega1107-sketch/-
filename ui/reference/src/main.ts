@@ -32,6 +32,8 @@ import {
   login,
   createTask,
   createAgentRun,
+  getAgentRun,
+  getAgentRunResult,
   getMemoryObject,
   logout,
   oidcLoginUrl,
@@ -49,7 +51,7 @@ import {
   type RelationshipType,
   type TaskContextCandidate,
 } from './api.js';
-import { expiryLabel, formatDate, operationLabel, shortId, statusLabels } from './format.js';
+import { agentRunStatusLabel, expiryLabel, formatDate, operationLabel, shortId, statusLabels } from './format.js';
 import './style.css';
 
 const icons = {
@@ -87,6 +89,7 @@ let currentDecisionId: string | null = null;
 let sourceRowSequence = 0;
 let decisionFormMode: 'create' | 'supersede' = 'create';
 let decisionFormTargetId: string | null = null;
+let agentRunRefreshTimer: number | undefined;
 
 const authView = required<HTMLElement>('auth-view');
 const workspace = required<HTMLElement>('workspace');
@@ -129,8 +132,13 @@ const contextPanel = required<HTMLElement>('context-panel');
 const contextCandidatesRegion = required<HTMLElement>('context-candidates');
 const taskSummary = required<HTMLElement>('task-summary');
 const agentInstructions = required<HTMLTextAreaElement>('agent-instructions');
+const agentType = required<HTMLSelectElement>('agent-type');
 const runAgentButton = required<HTMLButtonElement>('run-agent-button');
 const workbenchError = required<HTMLElement>('workbench-error');
+const agentResult = required<HTMLElement>('agent-result');
+const agentRunStatus = required<HTMLElement>('agent-run-status');
+const agentRunError = required<HTMLElement>('agent-run-error');
+const agentRunContent = required<HTMLPreElement>('agent-run-content');
 const decisionLookupForm = required<HTMLFormElement>('decision-lookup-form');
 const decisionIdInput = required<HTMLInputElement>('decision-id-input');
 const decisionRegion = required<HTMLElement>('decision-region');
@@ -328,13 +336,55 @@ async function submitAgentRun(): Promise<void> {
       if (memory.current_version === null) throw new Error(`Для «${memory.title}» нет доступной версии.`);
       return { memory_object_id: memory.id, document_version_id: memory.current_version.id, access_reason: currentTask!.request };
     }));
-    const run = await createAgentRun(currentTask.id, { agent_type: 'architect', purpose: currentTask.title, instructions: agentInstructions.value.trim(), context });
+    const run = await createAgentRun(currentTask.id, { agent_type: agentType.value, purpose: currentTask.title, instructions: agentInstructions.value.trim(), context });
+    renderAgentRun(run);
     showToast(run.status === 'awaiting_user_confirmation' ? 'Запуск ожидает подтверждения' : 'Анализ запущен');
     if (run.status === 'awaiting_user_confirmation') selectWorkspaceView('confirmations');
   } catch (error) { showWorkbenchError(error); } finally { setBusy(runAgentButton, false); }
 }
 
 function showWorkbenchError(error: unknown): void { workbenchError.textContent = messageFor(error); workbenchError.hidden = false; }
+
+function renderAgentRun(run: { id: string; status: string; error_message: string | null }): void {
+  if (agentRunRefreshTimer !== undefined) window.clearTimeout(agentRunRefreshTimer);
+  agentResult.hidden = false;
+  agentRunStatus.textContent = agentRunStatusLabel(run.status);
+  agentRunError.hidden = true;
+  agentRunContent.hidden = true;
+  if (run.status === 'failed') {
+    agentRunError.textContent = run.error_message ?? 'Анализ не был завершён.';
+    agentRunError.hidden = false;
+    return;
+  }
+  if (run.status === 'completed') {
+    void loadAgentResult(run.id);
+    return;
+  }
+  if (run.status === 'queued' || run.status === 'running') {
+    agentRunRefreshTimer = window.setTimeout(() => void refreshAgentRun(run.id), 1_500);
+  }
+}
+
+async function refreshAgentRun(agentRunId: string): Promise<void> {
+  try {
+    renderAgentRun(await getAgentRun(agentRunId));
+  } catch (error) {
+    agentResult.hidden = false;
+    agentRunError.textContent = messageFor(error);
+    agentRunError.hidden = false;
+  }
+}
+
+async function loadAgentResult(agentRunId: string): Promise<void> {
+  try {
+    const result = await getAgentRunResult(agentRunId);
+    agentRunContent.textContent = result.content;
+    agentRunContent.hidden = false;
+  } catch (error) {
+    agentRunError.textContent = messageFor(error);
+    agentRunError.hidden = false;
+  }
+}
 
 async function refreshCurrentView(): Promise<void> {
   if (currentView === 'confirmations') {

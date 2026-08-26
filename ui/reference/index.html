@@ -189,9 +189,16 @@
             <section class="workbench-panel context-panel" id="context-panel" hidden>
               <div><p class="eyebrow">Шаг 3</p><h2>Разрешённый контекст</h2><p id="task-summary" class="muted-copy"></p></div>
               <div id="context-candidates" class="context-candidates"></div>
+              <label class="field"><span>Среда анализа</span><select id="agent-type"><option value="architect_internal">Внутренняя модель</option><option value="architect">Внешняя модель</option></select></label>
               <label class="field"><span>Инструкция агенту</span><textarea id="agent-instructions" maxlength="12000" rows="4" placeholder="Сформулируйте ожидаемый результат"></textarea></label>
               <button class="button primary" id="run-agent-button" type="button"><i data-lucide="bot"></i><span>Запустить анализ</span></button>
               <p class="form-error" id="workbench-error" role="alert" hidden></p>
+            </section>
+            <section class="workbench-panel agent-result" id="agent-result" aria-live="polite" hidden>
+              <div><p class="eyebrow">AI-анализ</p><h2>Результат</h2></div>
+              <p class="agent-run-status" id="agent-run-status"></p>
+              <p class="form-error" id="agent-run-error" role="alert" hidden></p>
+              <pre id="agent-run-content" hidden></pre>
             </section>
           </section>
         </main>

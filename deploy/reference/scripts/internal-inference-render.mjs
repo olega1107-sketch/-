@@ -116,7 +116,7 @@ export function renderInternalInference(config) {
       podSelector: { matchLabels: labels },
       policyTypes: ['Ingress', 'Egress'],
       ingress: [{
-        from: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'dirizhor-gateway' } } }],
+        from: [{ podSelector: { matchLabels: { 'app.kubernetes.io/name': 'dirizhor', 'app.kubernetes.io/component': 'gateway' } } }],
         ports: [{ protocol: 'TCP', port: 8443 }],
       }],
       egress: [],

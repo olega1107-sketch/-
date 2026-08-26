@@ -23,7 +23,10 @@ test('renders an isolated internal inference deployment on the dedicated worker'
   assert.deepEqual(modelRuntime.startupProbe.exec.command, ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health']);
   assert.deepEqual(modelRuntime.livenessProbe.exec.command, ['/bin/sh', '-ec', 'curl --fail --silent --show-error --output /dev/null http://127.0.0.1:8080/health']);
   assert.deepEqual(policy.spec.egress, []);
-  assert.equal(policy.spec.ingress[0].from[0].podSelector.matchLabels['app.kubernetes.io/name'], 'dirizhor-gateway');
+  assert.deepEqual(policy.spec.ingress[0].from[0].podSelector.matchLabels, {
+    'app.kubernetes.io/name': 'dirizhor',
+    'app.kubernetes.io/component': 'gateway',
+  });
 });
 
 test('rejects mutable images and any alternate pilot model', () => {

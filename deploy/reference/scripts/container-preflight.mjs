@@ -182,10 +182,16 @@ async function validateInferenceModelDockerfile(root) {
   const required = [
     '# syntax=docker/dockerfile:1.7',
     'ARG LLAMA_SERVER_IMAGE',
+    'ARG MODEL_PREP_IMAGE',
+    'FROM ${MODEL_PREP_IMAGE} AS prepare',
     'FROM ${LLAMA_SERVER_IMAGE}',
     'ARG MODEL_URL',
     'ADD --checksum=sha256:7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
-    '${MODEL_URL} /models/Qwen3-4B-Q4_K_M.gguf',
+    '${MODEL_URL} /tmp/Qwen3-4B-Q4_K_M.gguf',
+    'split -b 125000000 -d -a 2',
+    'test "$(find /model-parts -type f | wc -l | tr -d \' \')" = 20',
+    'COPY --from=prepare --chown=10001:10001 /model-parts/part-00 /model-parts/part-00',
+    'COPY --from=prepare --chown=10001:10001 /model-parts/part-19 /model-parts/part-19',
     'USER 10001:10001',
     'ENTRYPOINT ["/app/llama-server"]',
   ];

@@ -8,7 +8,7 @@
   },
   "model": {
     "id": "Qwen3-4B-Q4_K_M",
-    "path": "/models/Qwen3-4B-Q4_K_M.gguf"
+    "path": "/model-work/Qwen3-4B-Q4_K_M.gguf"
   },
   "service_name": "dirizhor-inference",
   "secrets": {

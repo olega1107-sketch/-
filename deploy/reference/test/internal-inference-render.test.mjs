@@ -17,7 +17,9 @@ test('renders an isolated internal inference deployment on the dedicated worker'
   assert.equal(deployment.spec.template.spec.automountServiceAccountToken, false);
   assert.equal(deployment.spec.template.spec.containers.length, 2);
   assert.ok(deployment.spec.template.spec.containers.every((container) => container.securityContext.readOnlyRootFilesystem));
-  assert.ok(deployment.spec.template.spec.containers.find((container) => container.name === 'model-runtime').args.includes('--offline'));
+  const modelRuntime = deployment.spec.template.spec.containers.find((container) => container.name === 'model-runtime');
+  assert.match(modelRuntime.args[0], /--offline/);
+  assert.match(modelRuntime.args[0], /cat \/model-parts\/part-\*/);
   assert.deepEqual(policy.spec.egress, []);
   assert.equal(policy.spec.ingress[0].from[0].podSelector.matchLabels['app.kubernetes.io/name'], 'dirizhor-gateway');
 });

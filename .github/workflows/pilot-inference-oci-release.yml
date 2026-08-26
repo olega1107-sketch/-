@@ -131,7 +131,7 @@ jobs:
           model_tag="${REGISTRY}/inference-adapter:${RELEASE_SUFFIX}-model"
           model_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/${MODEL_REVISION}/${MODEL_FILE}"
           docker buildx build --file inference/reference/Dockerfile --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/adapter-build-metadata.json" --build-arg "NODE_BUILD_IMAGE=${NODE_BUILD_IMAGE}" --build-arg "NODE_RUNTIME_IMAGE=${NODE_RUNTIME_IMAGE}" --build-arg "PNPM_VERSION=${PNPM_VERSION}" --tag "${adapter_tag}" --push .
-          docker buildx build --file inference/reference/Dockerfile.model --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/model-build-metadata.json" --build-arg "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}" --build-arg "MODEL_URL=${model_url}" --tag "${model_tag}" --push .
+          docker buildx build --file inference/reference/Dockerfile.model --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/model-build-metadata.json" --build-arg "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}" --build-arg "MODEL_PREP_IMAGE=${NODE_RUNTIME_IMAGE}" --build-arg "MODEL_URL=${model_url}" --tag "${model_tag}" --push .
           adapter_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/adapter-build-metadata.json")"
           model_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/model-build-metadata.json")"
           printf 'ADAPTER_IMAGE=%s/inference-adapter@%s\nMODEL_IMAGE=%s/inference-adapter@%s\n' "${REGISTRY}" "${adapter_digest}" "${REGISTRY}" "${model_digest}" >> "${GITHUB_ENV}"

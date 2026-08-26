@@ -18,7 +18,7 @@ export function validateInternalInferenceConfig(config) {
     if (typeof image !== 'string' || !digestImage.test(image)) throw new Error(`${name} image must be digest-pinned.`);
   }
   exactObject(config.model, ['id', 'path'], 'model');
-  if (config.model.id !== 'Qwen3-4B-Q4_K_M' || config.model.path !== '/models/Qwen3-4B-Q4_K_M.gguf') {
+  if (config.model.id !== 'Qwen3-4B-Q4_K_M' || config.model.path !== '/model-work/Qwen3-4B-Q4_K_M.gguf') {
     throw new Error('Pilot model identity or path is not approved.');
   }
   exactObject(config.secrets, ['runtime', 'tls'], 'secrets');
@@ -93,8 +93,9 @@ export function renderInternalInference(config) {
               name: 'model-runtime',
               image: value.images.model_runtime,
               imagePullPolicy: 'IfNotPresent',
-              args: ['--model', value.model.path, '--alias', value.model.id, '--host', '127.0.0.1', '--port', '8080', '--threads', '4', '--threads-batch', '4', '--ctx-size', '8192', '--parallel', '1', '--batch-size', '512', '--ubatch-size', '128', '--offline', '--no-webui'],
-              volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }],
+              command: ['/bin/sh', '-ec'],
+              args: [`cat /model-parts/part-* > ${value.model.path}\nexec /app/llama-server --model ${value.model.path} --alias ${value.model.id} --host 127.0.0.1 --port 8080 --threads 4 --threads-batch 4 --ctx-size 8192 --parallel 1 --batch-size 512 --ubatch-size 128 --offline --no-webui`],
+              volumeMounts: [{ name: 'tmp', mountPath: '/tmp' }, { name: 'model-work', mountPath: '/model-work' }],
               startupProbe: { httpGet: { path: '/health', port: 8080, scheme: 'HTTP' }, periodSeconds: 10, timeoutSeconds: 3, failureThreshold: 60 },
               livenessProbe: { httpGet: { path: '/health', port: 8080, scheme: 'HTTP' }, periodSeconds: 30, timeoutSeconds: 3, failureThreshold: 3 },
               resources: value.resources.model_runtime,
@@ -105,6 +106,7 @@ export function renderInternalInference(config) {
             { name: 'runtime', secret: { secretName: value.secrets.runtime, defaultMode: 256 } },
             { name: 'tls', secret: { secretName: value.secrets.tls, defaultMode: 256 } },
             { name: 'tmp', emptyDir: { sizeLimit: '256Mi' } },
+            { name: 'model-work', emptyDir: { sizeLimit: '3Gi' } },
           ],
         },
       },

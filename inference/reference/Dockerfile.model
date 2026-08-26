@@ -1,11 +1,38 @@
 # syntax=docker/dockerfile:1.7
 
 ARG LLAMA_SERVER_IMAGE
-FROM ${LLAMA_SERVER_IMAGE}
+ARG MODEL_PREP_IMAGE
+
+FROM ${MODEL_PREP_IMAGE} AS prepare
 
 ARG MODEL_URL
 ADD --checksum=sha256:7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5 \
-    --chown=10001:10001 ${MODEL_URL} /models/Qwen3-4B-Q4_K_M.gguf
+    ${MODEL_URL} /tmp/Qwen3-4B-Q4_K_M.gguf
+RUN mkdir -p /model-parts && chmod 0755 /model-parts && \
+    split -b 125000000 -d -a 2 /tmp/Qwen3-4B-Q4_K_M.gguf /model-parts/part- && \
+    test "$(find /model-parts -type f | wc -l | tr -d ' ')" = 20
+
+FROM ${LLAMA_SERVER_IMAGE}
+COPY --from=prepare --chown=10001:10001 /model-parts/part-00 /model-parts/part-00
+COPY --from=prepare --chown=10001:10001 /model-parts/part-01 /model-parts/part-01
+COPY --from=prepare --chown=10001:10001 /model-parts/part-02 /model-parts/part-02
+COPY --from=prepare --chown=10001:10001 /model-parts/part-03 /model-parts/part-03
+COPY --from=prepare --chown=10001:10001 /model-parts/part-04 /model-parts/part-04
+COPY --from=prepare --chown=10001:10001 /model-parts/part-05 /model-parts/part-05
+COPY --from=prepare --chown=10001:10001 /model-parts/part-06 /model-parts/part-06
+COPY --from=prepare --chown=10001:10001 /model-parts/part-07 /model-parts/part-07
+COPY --from=prepare --chown=10001:10001 /model-parts/part-08 /model-parts/part-08
+COPY --from=prepare --chown=10001:10001 /model-parts/part-09 /model-parts/part-09
+COPY --from=prepare --chown=10001:10001 /model-parts/part-10 /model-parts/part-10
+COPY --from=prepare --chown=10001:10001 /model-parts/part-11 /model-parts/part-11
+COPY --from=prepare --chown=10001:10001 /model-parts/part-12 /model-parts/part-12
+COPY --from=prepare --chown=10001:10001 /model-parts/part-13 /model-parts/part-13
+COPY --from=prepare --chown=10001:10001 /model-parts/part-14 /model-parts/part-14
+COPY --from=prepare --chown=10001:10001 /model-parts/part-15 /model-parts/part-15
+COPY --from=prepare --chown=10001:10001 /model-parts/part-16 /model-parts/part-16
+COPY --from=prepare --chown=10001:10001 /model-parts/part-17 /model-parts/part-17
+COPY --from=prepare --chown=10001:10001 /model-parts/part-18 /model-parts/part-18
+COPY --from=prepare --chown=10001:10001 /model-parts/part-19 /model-parts/part-19
 
 USER 10001:10001
 ENTRYPOINT ["/app/llama-server"]

@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "deployment_id": "pilot-inference-2026-08-26-01",
+  "namespace": "dirizhor-pilot",
+  "images": {
+    "adapter": "registry.invalid/dirizhor/inference-adapter@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "model_runtime": "registry.invalid/dirizhor/inference-model@sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+  },
+  "model": {
+    "id": "Qwen3-4B-Q4_K_M",
+    "path": "/models/Qwen3-4B-Q4_K_M.gguf"
+  },
+  "service_name": "dirizhor-inference",
+  "secrets": {
+    "runtime": "dirizhor-inference-runtime",
+    "tls": "dirizhor-inference-tls"
+  },
+  "scheduling": {
+    "label_key": "dirizhor.io/workload",
+    "label_value": "internal-inference",
+    "taint_effect": "NoSchedule"
+  },
+  "resources": {
+    "adapter": {
+      "requests": {"cpu": "100m", "memory": "128Mi", "ephemeral-storage": "128Mi"},
+      "limits": {"cpu": "250m", "memory": "256Mi", "ephemeral-storage": "256Mi"}
+    },
+    "model_runtime": {
+      "requests": {"cpu": "3400m", "memory": "10Gi", "ephemeral-storage": "3Gi"},
+      "limits": {"cpu": "3750m", "memory": "12Gi", "ephemeral-storage": "4Gi"}
+    }
+  }
+}

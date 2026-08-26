@@ -1,0 +1,186 @@
+name: Pilot internal inference OCI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Approved internal inference release identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: pilot-inference-oci-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY_HOST: registry.digitalocean.com
+  REGISTRY: registry.digitalocean.com/dirizherpilotregistry
+  NODE_VERSION: 24.19.0
+  PNPM_VERSION: 11.18.0
+  DOCKER_VERSION: 28.3.3
+  BUILDX_VERSION: 0.28.0
+  SYFT_VERSION: 1.45.1
+  TRIVY_VERSION: 0.74.0
+  COSIGN_VERSION: 3.0.2
+  NODE_RUNTIME_IMAGE: docker.io/library/node:24.19.0-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
+  LLAMA_SERVER_IMAGE: ghcr.io/ggml-org/llama.cpp:server@sha256:db8e923e6edc9241ad788979af79543a1e1ba55dbb7d41e62490ef0d0ad3c8e7
+  MODEL_REVISION: bc640142c66e1fdd12af0bd68f40445458f3869b
+  MODEL_FILE: Qwen3-4B-Q4_K_M.gguf
+  MODEL_SHA256: 7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5
+
+jobs:
+  release:
+    name: Build, scan, sign, and publish internal inference images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    environment: digitalocean-pilot
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          package-manager-cache: false
+
+      - name: Set up pinned Docker
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4.7.0
+        with:
+          version: ${{ env.DOCKER_VERSION }}
+
+      - name: Set up pinned Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v${{ env.BUILDX_VERSION }}
+
+      - name: Install pinned release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="${RUNNER_TEMP}/release-tools"
+          downloads="${RUNNER_TEMP}/release-downloads"
+          install -d -m 0700 "${tools}" "${downloads}"
+          curl --fail --location --silent --show-error --output "${downloads}/syft.tar.gz" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' '20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716' "${downloads}/syft.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/syft.tar.gz" -C "${tools}" syft
+          curl --fail --location --silent --show-error --output "${downloads}/trivy.tar.gz" "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' "${downloads}/trivy.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/trivy.tar.gz" -C "${tools}" trivy
+          curl --fail --location --silent --show-error --output "${tools}/cosign" "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          printf '%s  %s\n' '46dbdcb5467a3dfec2526923d0b3365e40c8d9dc00ec23d5aca3437449e8cbfd' "${tools}/cosign" | sha256sum --check --strict
+          chmod 0555 "${tools}/syft" "${tools}/trivy" "${tools}/cosign"
+          printf '%s\n' "${tools}" >> "${GITHUB_PATH}"
+
+      - name: Verify release request and registry access
+        shell: bash
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$ ]]
+          test -n "${REGISTRY_TOKEN}"
+          printf '%s' "${REGISTRY_TOKEN}" | docker login "${REGISTRY_HOST}" --username "${REGISTRY_TOKEN}" --password-stdin
+          suffix="${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          printf 'RELEASE_ID=%s\nRELEASE_SUFFIX=%s\n' "${RELEASE_ID}" "${suffix}" >> "${GITHUB_ENV}"
+          printf 'CERTIFICATE_IDENTITY=https://github.com/%s\n' "${GITHUB_WORKFLOW_REF}" >> "${GITHUB_ENV}"
+
+      - name: Build pinned Node build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/inference-oci-evidence"
+          install -d -m 0700 "${evidence}"
+          tag="${REGISTRY}/node-build:${RELEASE_SUFFIX}"
+          docker buildx build --file deploy/reference/Dockerfile.node-build --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/node-build-metadata.json" --build-arg "NODE_RUNTIME_IMAGE=${NODE_RUNTIME_IMAGE}" --build-arg "PNPM_VERSION=${PNPM_VERSION}" --tag "${tag}" --push .
+          digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/node-build-metadata.json")"
+          printf 'NODE_BUILD_IMAGE=%s/node-build@%s\n' "${REGISTRY}" "${digest}" >> "${GITHUB_ENV}"
+
+      - name: Scan, sign, and attest Node build image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/inference-oci-evidence"
+          printf '%s\n' '# Suppressions are prohibited by the pilot policy.' > "${evidence}/trivy-empty.ignore"
+          trivy image --download-db-only
+          syft "${NODE_BUILD_IMAGE}" -o "cyclonedx-json=${evidence}/node-build-sbom.cdx.json"
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "${evidence}/node-build-sbom.cdx.json" > /dev/null
+          trivy image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignorefile "${evidence}/trivy-empty.ignore" --exit-on-eol 1 --format json --output "${evidence}/node-build-trivy.json" "${NODE_BUILD_IMAGE}"
+          response="$(curl --fail --silent --show-error --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore")"
+          SIGSTORE_ID_TOKEN="$(jq -er '.value | select(type == "string" and length > 0)' <<< "${response}")"
+          export SIGSTORE_ID_TOKEN
+          echo "::add-mask::${SIGSTORE_ID_TOKEN}"
+          cosign sign --yes "${NODE_BUILD_IMAGE}"
+          cosign attest --yes --type cyclonedx --predicate "${evidence}/node-build-sbom.cdx.json" "${NODE_BUILD_IMAGE}"
+          cosign verify --output json --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${NODE_BUILD_IMAGE}" > "${evidence}/node-build-signature-verification.json"
+          cosign verify-attestation --type cyclonedx --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${NODE_BUILD_IMAGE}" > "${evidence}/node-build-attestation-verification.json"
+
+      - name: Build inference adapter and model images
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/inference-oci-evidence"
+          adapter_tag="${REGISTRY}/inference-adapter:${RELEASE_SUFFIX}"
+          model_tag="${REGISTRY}/inference-model:${RELEASE_SUFFIX}"
+          model_url="https://huggingface.co/Qwen/Qwen3-4B-GGUF/resolve/${MODEL_REVISION}/${MODEL_FILE}"
+          docker buildx build --file inference/reference/Dockerfile --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/adapter-build-metadata.json" --build-arg "NODE_BUILD_IMAGE=${NODE_BUILD_IMAGE}" --build-arg "NODE_RUNTIME_IMAGE=${NODE_RUNTIME_IMAGE}" --build-arg "PNPM_VERSION=${PNPM_VERSION}" --tag "${adapter_tag}" --push .
+          docker buildx build --file inference/reference/Dockerfile.model --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/model-build-metadata.json" --build-arg "LLAMA_SERVER_IMAGE=${LLAMA_SERVER_IMAGE}" --build-arg "MODEL_URL=${model_url}" --tag "${model_tag}" --push .
+          adapter_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/adapter-build-metadata.json")"
+          model_digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/model-build-metadata.json")"
+          printf 'ADAPTER_IMAGE=%s/inference-adapter@%s\nMODEL_IMAGE=%s/inference-model@%s\n' "${REGISTRY}" "${adapter_digest}" "${REGISTRY}" "${model_digest}" >> "${GITHUB_ENV}"
+
+      - name: Scan, sign, and attest inference images
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/inference-oci-evidence"
+          printf '%s\n' '# Suppressions are prohibited by the pilot policy.' > "${evidence}/trivy-empty.ignore"
+          trivy image --download-db-only
+          response="$(curl --fail --silent --show-error --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore")"
+          SIGSTORE_ID_TOKEN="$(jq -er '.value | select(type == "string" and length > 0)' <<< "${response}")"
+          export SIGSTORE_ID_TOKEN
+          echo "::add-mask::${SIGSTORE_ID_TOKEN}"
+          for pair in "adapter=${ADAPTER_IMAGE}" "model=${MODEL_IMAGE}"; do
+            name="${pair%%=*}"
+            image="${pair#*=}"
+            docker buildx imagetools inspect --raw "${image}" > "${evidence}/${name}-manifest-index.json"
+            jq -e '[.manifests[].platform | select(.os == "linux" and .architecture == "amd64")] | length == 1' "${evidence}/${name}-manifest-index.json" > /dev/null
+            syft "${image}" -o "cyclonedx-json=${evidence}/${name}-sbom.cdx.json"
+            jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "${evidence}/${name}-sbom.cdx.json" > /dev/null
+            trivy image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignorefile "${evidence}/trivy-empty.ignore" --exit-on-eol 1 --format json --output "${evidence}/${name}-trivy.json" "${image}"
+            cosign sign --yes "${image}"
+            cosign attest --yes --type cyclonedx --predicate "${evidence}/${name}-sbom.cdx.json" "${image}"
+            cosign verify --output json --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${image}" > "${evidence}/${name}-signature-verification.json"
+            cosign verify-attestation --type cyclonedx --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${image}" > "${evidence}/${name}-attestation-verification.json"
+          done
+
+      - name: Write bounded release evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/inference-oci-evidence"
+          jq -n --arg release_id "${RELEASE_ID}" --arg source_commit "${GITHUB_SHA}" --arg adapter "${ADAPTER_IMAGE}" --arg model_image "${MODEL_IMAGE}" --arg model_revision "${MODEL_REVISION}" --arg model_file "${MODEL_FILE}" --arg model_sha256 "${MODEL_SHA256}" --arg llama_server_image "${LLAMA_SERVER_IMAGE}" '{schema_version: 1, status: "PASS", release_id: $release_id, source_commit: $source_commit, images: {adapter: $adapter, model_runtime: $model_image}, model: {repository: "Qwen/Qwen3-4B-GGUF", revision: $model_revision, file: $model_file, sha256: $model_sha256}, llama_server_image: $llama_server_image, vulnerability_policy: {severities: ["HIGH", "CRITICAL"], suppressions: false}, signatures_verified: true, sbom_attestations_verified: true}' > "${evidence}/inference-oci-release-evidence.json"
+          chmod 0600 "${evidence}"/*
+
+      - name: Remove registry credentials
+        if: always()
+        shell: bash
+        run: |
+          docker logout "${REGISTRY_HOST}" || true
+          rm -f "${HOME}/.docker/config.json"
+
+      - name: Retain non-secret release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: pilot-inference-oci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/inference-oci-evidence
+          if-no-files-found: warn
+          retention-days: 30

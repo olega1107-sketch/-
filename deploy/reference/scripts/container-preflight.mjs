@@ -45,6 +45,22 @@ const dockerfileProfiles = [
     ],
   },
   {
+    name: 'inference-adapter',
+    path: 'inference/reference/Dockerfile',
+    required: [
+      'FROM ${NODE_BUILD_IMAGE} AS build',
+      'FROM ${NODE_RUNTIME_IMAGE} AS runtime',
+      'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
+      'pnpm install --frozen-lockfile --offline --ignore-scripts',
+      'rm -rf /usr/local/lib/node_modules/npm',
+      'rm -f /usr/local/bin/npm /usr/local/bin/npx',
+      'COPY --from=build --chown=10001:10001',
+      'USER 10001:10001',
+      'ENTRYPOINT []',
+      'CMD ["node", "dist/main.js"]',
+    ],
+  },
+  {
     name: 'edge',
     path: 'deploy/reference/Dockerfile.edge',
     required: [
@@ -87,6 +103,7 @@ export async function validateContainerContract({
   await validatePackageManagers(root);
   await validateDockerIgnore(root);
   await validateEdgeFiles(root);
+  await validateInferenceModelDockerfile(root);
 
   return {
     status: 'ok',
@@ -146,12 +163,34 @@ async function validatePackageManagers(root) {
   for (const relativePath of [
     'director/reference/package.json',
     'gateway/reference/package.json',
+    'inference/reference/package.json',
     'ui/reference/package.json',
   ]) {
     const document = JSON.parse(await readFile(path.join(root, relativePath), 'utf8'));
     if (document.packageManager !== `pnpm@${expectedPnpmVersion}`) {
       throw new Error('Every package must pin the approved pnpm version.');
     }
+  }
+}
+
+async function validateInferenceModelDockerfile(root) {
+  const contents = await readFile(path.join(root, 'inference/reference/Dockerfile.model'), 'utf8');
+  const required = [
+    '# syntax=docker/dockerfile:1.7',
+    'ARG LLAMA_SERVER_IMAGE',
+    'FROM ${LLAMA_SERVER_IMAGE}',
+    'ARG MODEL_URL',
+    'ADD --checksum=sha256:7485fe6f11af29433bc51cab58009521f205840f5b4ae3a32fa7f92e8534fdf5',
+    '${MODEL_URL} /models/Qwen3-4B-Q4_K_M.gguf',
+    'USER 10001:10001',
+    'ENTRYPOINT ["/app/llama-server"]',
+  ];
+  if (
+    required.some((marker) => !contents.includes(marker)) ||
+    /:latest(?:\s|$)/.test(contents) ||
+    /^(?:ARG|ENV)\s+[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY)[A-Z0-9_]*/m.test(contents)
+  ) {
+    throw new Error('Inference model Dockerfile is missing an immutable model control.');
   }
 }
 

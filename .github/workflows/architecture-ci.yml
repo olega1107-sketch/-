@@ -34,6 +34,9 @@ jobs:
           - component: gateway
             working_directory: gateway/reference
             lint: true
+          - component: inference
+            working_directory: inference/reference
+            lint: false
           - component: ui
             working_directory: ui/reference
             lint: false
@@ -82,7 +85,12 @@ jobs:
         run: pnpm lint
 
       - name: Test
+        if: matrix.component != 'inference'
         run: pnpm test --maxWorkers=2
+
+      - name: Test internal inference
+        if: matrix.component == 'inference'
+        run: pnpm test
 
       - name: Verify document-to-agent workflow
         if: matrix.component == 'ui'

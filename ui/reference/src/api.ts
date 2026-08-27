@@ -372,6 +372,16 @@ export function getAgentRunResult(agentRunId: string): Promise<AgentRunResult> {
   return apiRequest(`/agent-runs/${encodeURIComponent(agentRunId)}/result`);
 }
 
+export function saveAgentRunResult(
+  agentRunId: string,
+  input: { title: string; summary?: string | null },
+): Promise<MemoryObject> {
+  return apiRequest(`/agent-runs/${encodeURIComponent(agentRunId)}/result:save`, {
+    method: 'POST',
+    body: JSON.stringify(input),
+  });
+}
+
 async function apiRequest<T>(
   path: string,
   options: RequestInit & { authenticated?: boolean } = {},

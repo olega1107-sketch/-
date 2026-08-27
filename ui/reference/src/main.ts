@@ -12,6 +12,7 @@ import {
   LogOut,
   Plus,
   RefreshCw,
+  Save,
   Search,
   ShieldCheck,
   Trash2,
@@ -38,6 +39,7 @@ import {
   logout,
   oidcLoginUrl,
   requestDecisionApproval,
+  saveAgentRunResult,
   supersedeDecision,
   searchTaskContext,
   uploadMemoryObject,
@@ -68,6 +70,7 @@ const icons = {
   LogOut,
   Plus,
   RefreshCw,
+  Save,
   Search,
   ShieldCheck,
   Trash2,
@@ -90,6 +93,7 @@ let sourceRowSequence = 0;
 let decisionFormMode: 'create' | 'supersede' = 'create';
 let decisionFormTargetId: string | null = null;
 let agentRunRefreshTimer: number | undefined;
+let currentAgentRunId: string | null = null;
 
 const authView = required<HTMLElement>('auth-view');
 const workspace = required<HTMLElement>('workspace');
@@ -139,6 +143,8 @@ const agentResult = required<HTMLElement>('agent-result');
 const agentRunStatus = required<HTMLElement>('agent-run-status');
 const agentRunError = required<HTMLElement>('agent-run-error');
 const agentRunContent = required<HTMLPreElement>('agent-run-content');
+const saveAgentResultButton = required<HTMLButtonElement>('save-agent-result-button');
+const saveAgentResultStatus = required<HTMLElement>('save-agent-result-status');
 const decisionLookupForm = required<HTMLFormElement>('decision-lookup-form');
 const decisionIdInput = required<HTMLInputElement>('decision-id-input');
 const decisionRegion = required<HTMLElement>('decision-region');
@@ -187,6 +193,7 @@ workbenchNav.addEventListener('click', () => selectWorkspaceView('workbench'));
 uploadForm.addEventListener('submit', (event) => void submitUpload(event));
 taskForm.addEventListener('submit', (event) => void submitTask(event));
 runAgentButton.addEventListener('click', () => void submitAgentRun());
+saveAgentResultButton.addEventListener('click', () => void saveCurrentAgentResult());
 decisionLookupForm.addEventListener('submit', (event) => void lookupDecision(event));
 newDecisionButton.addEventListener('click', () => openCreateDecisionDialog());
 createDialogClose.addEventListener('click', () => createDecisionDialog.close());
@@ -337,6 +344,7 @@ async function submitAgentRun(): Promise<void> {
       return { memory_object_id: memory.id, document_version_id: memory.current_version.id, access_reason: currentTask!.request };
     }));
     const run = await createAgentRun(currentTask.id, { agent_type: agentType.value, purpose: currentTask.title, instructions: agentInstructions.value.trim(), context });
+    currentAgentRunId = run.id;
     renderAgentRun(run);
     showToast(run.status === 'awaiting_user_confirmation' ? 'Запуск ожидает подтверждения' : 'Анализ запущен');
     if (run.status === 'awaiting_user_confirmation') selectWorkspaceView('confirmations');
@@ -378,11 +386,40 @@ async function refreshAgentRun(agentRunId: string): Promise<void> {
 async function loadAgentResult(agentRunId: string): Promise<void> {
   try {
     const result = await getAgentRunResult(agentRunId);
+    currentAgentRunId = agentRunId;
     agentRunContent.textContent = result.content;
     agentRunContent.hidden = false;
+    const saved = result.saved_memory_object_id !== null;
+    saveAgentResultButton.hidden = saved;
+    saveAgentResultStatus.textContent = saved ? 'Результат уже сохранён в памяти.' : '';
+    saveAgentResultStatus.hidden = !saved;
   } catch (error) {
     agentRunError.textContent = messageFor(error);
     agentRunError.hidden = false;
+  }
+}
+
+async function saveCurrentAgentResult(): Promise<void> {
+  if (currentAgentRunId === null || currentTask === null) return;
+  setBusy(saveAgentResultButton, true);
+  saveAgentResultStatus.hidden = true;
+  try {
+    await saveAgentRunResult(currentAgentRunId, { title: currentTask.title });
+    saveAgentResultButton.hidden = true;
+    saveAgentResultStatus.textContent = 'Результат сохранён в памяти.';
+    saveAgentResultStatus.hidden = false;
+    showToast('Результат добавлен в память');
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'requires_confirmation') {
+      showToast('Запрос на сохранение создан. Подтвердите операцию.');
+      selectWorkspaceView('confirmations');
+      await loadQueue(true);
+    } else {
+      saveAgentResultStatus.textContent = messageFor(error);
+      saveAgentResultStatus.hidden = false;
+    }
+  } finally {
+    setBusy(saveAgentResultButton, false);
   }
 }
 

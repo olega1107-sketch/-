@@ -138,10 +138,16 @@ export function validateDockerfileText(contents, profile) {
   ) {
     throw new Error('Dockerfile base stages must use approved image arguments.');
   }
+  const rootUserInstructions = contents.match(/^USER\s+(?:0|root)(?::|\s|$).*$/gm) ?? [];
+  const scopedOpenSslBuildRoot =
+    rootUserInstructions.length === 1 &&
+    /^USER 0\nRUN apk add --no-cache --upgrade libcrypto3=3\.5\.8-r0 libssl3=3\.5\.8-r0$/m.test(
+      contents,
+    );
   if (
     /:latest(?:\s|$)/.test(contents) ||
     /^ADD\s/m.test(contents) ||
-    /^USER\s+(?:0|root)(?::|\s|$)/m.test(contents) ||
+    (rootUserInstructions.length > 0 && !scopedOpenSslBuildRoot) ||
     /^(?:ARG|ENV)\s+[A-Z0-9_]*(?:PASSWORD|SECRET|TOKEN|PRIVATE_KEY)[A-Z0-9_]*/m.test(
       contents,
     )

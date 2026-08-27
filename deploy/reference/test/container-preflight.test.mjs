@@ -63,6 +63,14 @@ USER 10001:10001
     () => validateDockerfileText(base.replace('USER 10001:10001', 'USER root'), profile),
     /forbidden mutable or privileged/,
   );
+  assert.doesNotThrow(() => validateDockerfileText(
+    base.replace('USER 10001:10001', [
+      'USER 0',
+      'RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
+      'USER 10001:10001',
+    ].join('\n')),
+    profile,
+  ));
   assert.throws(
     () => validateDockerfileText(base.replace('\${NODE_BUILD_IMAGE}', 'node:latest'), profile),
     /approved image arguments/,

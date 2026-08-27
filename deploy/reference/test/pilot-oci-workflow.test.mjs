@@ -47,7 +47,7 @@ test('pilot OCI release is manual, pinned, protected, and fail-closed', async ()
     '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a',
     '46dbdcb5467a3dfec2526923d0b3365e40c8d9dc00ec23d5aca3437449e8cbfd',
     'node:24.19.0-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43',
-    'nginx-unprivileged:1.31.3-alpine3.24-slim@sha256:d61d7ef52430df468e74ed6ee6e914429b80e20ba988e3176278a73165f876cf',
+    'nginx-unprivileged:1.31.4-alpine3.24-slim@sha256:021f32b23e2bfc8610ccdec499b709625dcee1369884d7a51bd8a23a3accb301',
   ]) {
     assert.equal(workflow.includes(exactControl), true, `missing ${exactControl}`);
   }

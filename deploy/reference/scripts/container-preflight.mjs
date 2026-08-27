@@ -71,6 +71,7 @@ const dockerfileProfiles = [
       'FROM ${NGINX_RUNTIME_IMAGE} AS runtime',
       'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
       'pnpm install --frozen-lockfile --offline --ignore-scripts',
+      'apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
       'COPY --from=ui-build --chown=10001:10001',
       'USER 10001:10001',
       'ENTRYPOINT ["/usr/local/bin/dirizhor-edge"]',

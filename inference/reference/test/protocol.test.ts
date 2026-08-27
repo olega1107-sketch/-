@@ -9,7 +9,8 @@ const model = 'Qwen3-4B-Q4_K_M';
 test('accepts the exact gateway protocol and preserves ordered context', () => {
   const parsed = parseInferenceRequest(requestFixture(), model);
   assert.equal(parsed.model, model);
-  assert.equal(parsed.context.items[0]?.position, 0);
+  assert.equal(parsed.context.items[0]?.position, 1);
+  assert.equal(parsed.context.context_set_hash, `sha256:${'a'.repeat(64)}`);
   assert.match(buildPrompt(parsed), /approved\.md/);
 });
 
@@ -76,16 +77,16 @@ function requestFixture(): Record<string, unknown> {
     instructions: 'Summarize the decision.',
     deadline_at: new Date(Date.now() + 60_000).toISOString(),
     context: {
-      context_set_hash: 'a'.repeat(64),
+      context_set_hash: `sha256:${'a'.repeat(64)}`,
       max_sensitivity_level: 'internal',
       items: [{
-        position: 0,
+        position: 1,
         file_name: 'approved.md',
         media_type: 'text/markdown',
         size_bytes: 12,
         content_encoding: 'utf-8',
         content: 'Approved data',
-        content_hash: 'b'.repeat(64),
+        content_hash: `sha256:${'b'.repeat(64)}`,
         sensitivity_level: 'internal',
         access_reason: 'Project membership verified by Director.',
       }],

@@ -82,8 +82,8 @@ function parseContextItem(value: unknown, index: number): ContextItem {
     'position', 'file_name', 'media_type', 'size_bytes', 'content_encoding', 'content',
     'content_hash', 'sensitivity_level', 'access_reason',
   ], `context.items[${index}]`);
-  const position = integer(item.position, `context.items[${index}].position`, 0, 99);
-  if (position !== index) throw new ProtocolError('Context positions must be contiguous and ordered.');
+  const position = integer(item.position, `context.items[${index}].position`, 1, 100);
+  if (position !== index + 1) throw new ProtocolError('Context positions must be contiguous and ordered.');
   return {
     position,
     file_name: text(item.file_name, 'file_name', 1, 512),
@@ -126,7 +126,7 @@ function pattern(value: unknown, pattern_: RegExp, name: string): string {
 }
 
 function sha256(value: unknown, name: string): string {
-  if (typeof value !== 'string' || !/^[0-9a-f]{64}$/i.test(value)) {
+  if (typeof value !== 'string' || !/^sha256:[0-9a-f]{64}$/i.test(value)) {
     throw new ProtocolError(`${name} must be a SHA-256 digest.`);
   }
   return value.toLowerCase();

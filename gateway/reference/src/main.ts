@@ -8,6 +8,7 @@ import { FixtureProviderAdapter } from './fixture-provider-adapter.js';
 import { GatewayService } from './gateway-service.js';
 import { HttpDirectorClient } from './http-director-client.js';
 import { InternalInferenceAdapter } from './internal-inference-adapter.js';
+import { closeMetricsServer, PrometheusMetrics, startMetricsServer } from './metrics.js';
 import { OpenAIResponsesAdapter } from './openai-responses-adapter.js';
 import type { ProviderAdapter } from './ports.js';
 import {
@@ -21,6 +22,7 @@ import {
 
 async function main(): Promise<void> {
   const config = loadGatewayConfig();
+  const metrics = new PrometheusMetrics('gateway');
   const store = new EncryptedFileExecutionStore(
     config.stateDirectory,
     EncryptedFileExecutionStore.keyFromBase64(config.spoolKeyBase64),
@@ -127,12 +129,24 @@ async function main(): Promise<void> {
         : new StaticBearerAuthenticator({
             token: config.serviceIdentity.inboundToken,
             requireMutualTls: false,
-          }),
+    }),
     https,
+    ...(config.metrics === undefined ? {} : { metrics }),
   });
 
   await service.resumePending();
   await app.listen({ host: config.host, port: config.port });
+  let metricsServer;
+  try {
+    metricsServer = config.metrics === undefined
+      ? undefined
+      : await startMetricsServer({ ...config.metrics, metrics });
+  } catch (error) {
+    await app.close();
+    await internalProviderDispatcher?.close();
+    await directorDispatcher?.close();
+    throw error;
+  }
   const scheme = config.allowInsecureDevelopment ? 'http' : 'https';
   process.stdout.write(`Agent Gateway listening at ${scheme}://${config.host}:${config.port}\n`);
 
@@ -141,6 +155,7 @@ async function main(): Promise<void> {
     if (shutdownStarted) return;
     shutdownStarted = true;
     try {
+      await closeMetricsServer(metricsServer);
       await app.close();
       await internalProviderDispatcher?.close();
       await directorDispatcher?.close();

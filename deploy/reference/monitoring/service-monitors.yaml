@@ -1,0 +1,65 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dirizhor-director
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  namespaceSelector:
+    matchNames: [dirizhor-pilot]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dirizhor
+      app.kubernetes.io/component: director
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service
+          replacement: director
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dirizhor-gateway
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  namespaceSelector:
+    matchNames: [dirizhor-pilot]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dirizhor
+      app.kubernetes.io/component: gateway
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service
+          replacement: gateway
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dirizhor-edge
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  namespaceSelector:
+    matchNames: [dirizhor-pilot]
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dirizhor
+      app.kubernetes.io/component: edge
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service
+          replacement: edge

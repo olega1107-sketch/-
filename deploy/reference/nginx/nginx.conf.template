@@ -41,6 +41,19 @@ http {
         keepalive 32;
     }
 
+    # This listener is reachable only from the exporter sidecar over pod loopback.
+    server {
+        listen ${EDGE_METRICS_LISTEN_PORT};
+        server_name _;
+        access_log off;
+
+        location = /stub_status {
+            stub_status;
+            allow 127.0.0.1;
+            deny all;
+        }
+    }
+
     server {
         listen ${PUBLIC_LISTEN_PORT} ssl;
         http2 on;

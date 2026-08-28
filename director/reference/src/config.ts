@@ -47,6 +47,10 @@ export interface ClientTlsConfig {
 export interface DirectorConfig {
   host: string;
   port: number;
+  metrics?: {
+    host: '127.0.0.1' | '0.0.0.0';
+    port: number;
+  };
   databaseUrl: string;
   databaseCaPath?: string;
   databasePoolSize: number;
@@ -94,6 +98,7 @@ export function loadDirectorConfig(
 ): DirectorConfig {
   const allowInsecureDevelopment = env.DIRECTOR_ALLOW_INSECURE_DEV === 'true';
   const port = positiveInteger(env.DIRECTOR_PORT ?? '8444', 'DIRECTOR_PORT', 65_535);
+  const metrics = configuredMetrics(env);
   const databasePoolSize = positiveInteger(
     env.DIRECTOR_DATABASE_POOL_SIZE ?? '10',
     'DIRECTOR_DATABASE_POOL_SIZE',
@@ -156,6 +161,7 @@ export function loadDirectorConfig(
   const base = {
     host: env.DIRECTOR_HOST ?? '127.0.0.1',
     port,
+    ...(metrics === undefined ? {} : { metrics }),
     databaseUrl: requiredSecret(env, 'DATABASE_URL', secretFileReader),
     databasePoolSize,
     documentStoreRoot: required(env, 'DOCUMENT_STORE_ROOT'),
@@ -207,6 +213,27 @@ export function loadDirectorConfig(
       keyPath: optional(env, 'DIRECTOR_GATEWAY_CLIENT_KEY_PATH') ?? tls.keyPath,
       caPath: optional(env, 'DIRECTOR_GATEWAY_CA_PATH') ?? tls.caPath,
     },
+  };
+}
+
+function configuredMetrics(
+  env: NodeJS.ProcessEnv,
+): DirectorConfig['metrics'] {
+  const configuredPort = optional(env, 'DIRECTOR_METRICS_PORT');
+  const configuredHost = optional(env, 'DIRECTOR_METRICS_HOST');
+  if (configuredPort === undefined) {
+    if (configuredHost !== undefined) {
+      throw new Error('DIRECTOR_METRICS_PORT is required when DIRECTOR_METRICS_HOST is set.');
+    }
+    return undefined;
+  }
+  const host = configuredHost ?? '127.0.0.1';
+  if (host !== '127.0.0.1' && host !== '0.0.0.0') {
+    throw new Error('DIRECTOR_METRICS_HOST must be 127.0.0.1 or 0.0.0.0.');
+  }
+  return {
+    host,
+    port: positiveInteger(configuredPort, 'DIRECTOR_METRICS_PORT', 65_535),
   };
 }
 

@@ -113,9 +113,10 @@ export function buildKubernetesBundles(config) {
     configMap(namespace, 'gateway', gatewayEnvironment(config, names)),
     persistentVolumeClaim(namespace, 'director', config.storage.director),
     persistentVolumeClaim(namespace, 'gateway', config.storage.gateway),
-    internalService(namespace, 'director', 8444),
-    internalService(namespace, 'gateway', 8443),
+    internalService(namespace, 'director', 8444, 9464),
+    internalService(namespace, 'gateway', 8443, 9465),
     edgeService(config),
+    edgeMetricsService(namespace),
     ...networkPolicies(config),
     ...ciliumFqdnPolicies(config),
     edgeDisruptionBudget(namespace),
@@ -279,12 +280,23 @@ function persistentVolumeClaim(namespace, component, storage) {
   }, labels(component));
 }
 
-function internalService(namespace, component, port) {
+function internalService(namespace, component, port, metricsPort) {
   return namespacedResource('v1', 'Service', namespace, `dirizhor-${component}`, {
     type: 'ClusterIP',
     selector: selector(component),
-    ports: [{ name: 'https', protocol: 'TCP', port, targetPort: 'https' }],
+    ports: [
+      { name: 'https', protocol: 'TCP', port, targetPort: 'https' },
+      { name: 'metrics', protocol: 'TCP', port: metricsPort, targetPort: 'metrics' },
+    ],
   }, labels(component));
+}
+
+function edgeMetricsService(namespace) {
+  return namespacedResource('v1', 'Service', namespace, 'dirizhor-edge-metrics', {
+    type: 'ClusterIP',
+    selector: selector('edge'),
+    ports: [{ name: 'metrics', protocol: 'TCP', port: 9113, targetPort: 'metrics' }],
+  }, labels('edge'));
 }
 
 function edgeService(config) {
@@ -334,7 +346,19 @@ function edgeDeployment(config) {
       { name: 'nginx-cache', mountPath: '/var/cache/nginx' },
     ],
   };
-  return deployment(config, 'edge', config.replicas.edge, container, [
+  const exporter = {
+    name: 'edge-metrics',
+    image: 'docker.io/nginx/nginx-prometheus-exporter@sha256:520c047935a8a59586c31f51a10d6b13e0efeb07221d7a49455ee51f236dcd62',
+    imagePullPolicy: 'IfNotPresent',
+    args: ['-nginx.scrape-uri=http://127.0.0.1:8080/stub_status', '-web.listen-address=:9113'],
+    ports: [{ name: 'metrics', containerPort: 9113, protocol: 'TCP' }],
+    resources: {
+      requests: { cpu: '25m', memory: '32Mi', 'ephemeral-storage': '32Mi' },
+      limits: { cpu: '100m', memory: '64Mi', 'ephemeral-storage': '64Mi' },
+    },
+    securityContext: containerSecurityContext(),
+  };
+  const deploymentResource = deployment(config, 'edge', config.replicas.edge, container, [
     {
       name: 'edge-secrets',
       projected: {
@@ -353,6 +377,8 @@ function edgeDeployment(config) {
     { name: 'tmp', emptyDir: { medium: 'Memory', sizeLimit: '128Mi' } },
     { name: 'nginx-cache', emptyDir: { medium: 'Memory', sizeLimit: '64Mi' } },
   ], { type: 'RollingUpdate', rollingUpdate: { maxUnavailable: 0, maxSurge: 1 } });
+  deploymentResource.spec.template.spec.containers.push(exporter);
+  return deploymentResource;
 }
 
 function directorDeployment(config) {
@@ -368,7 +394,10 @@ function directorDeployment(config) {
       secretFileEnv('DIRECTOR_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE', '/run/secrets/workload-identity/signing-private-key-base64'),
       secretFileEnv('GATEWAY_WORKLOAD_VERIFY_KEYS_JSON_FILE', '/run/secrets/workload-identity/gateway-verification-keys-json'),
     ],
-    ports: [{ name: 'https', containerPort: 8444, protocol: 'TCP' }],
+    ports: [
+      { name: 'https', containerPort: 8444, protocol: 'TCP' },
+      { name: 'metrics', containerPort: 9464, protocol: 'TCP' },
+    ],
     resources: config.resources.director,
     securityContext: containerSecurityContext(),
     startupProbe: httpsProbe('/health/live', 30),
@@ -412,7 +441,10 @@ function gatewayDeployment(config) {
       secretFileEnv('GATEWAY_WORKLOAD_SIGNING_PRIVATE_KEY_BASE64_FILE', '/run/secrets/workload-identity/signing-private-key-base64'),
       secretFileEnv('DIRECTOR_WORKLOAD_VERIFY_KEYS_JSON_FILE', '/run/secrets/workload-identity/director-verification-keys-json'),
     ],
-    ports: [{ name: 'https', containerPort: 8443, protocol: 'TCP' }],
+    ports: [
+      { name: 'https', containerPort: 8443, protocol: 'TCP' },
+      { name: 'metrics', containerPort: 9465, protocol: 'TCP' },
+    ],
     resources: config.resources.gateway,
     securityContext: containerSecurityContext(),
     startupProbe: gatewayExecProbe('/health/live', gatewayDns, 30),
@@ -593,15 +625,18 @@ function networkPolicies(config) {
     }),
     networkPolicy(namespace, 'edge', selector('edge'), {
       policyTypes: ['Ingress', 'Egress'],
-      ingress: config.public.load_balancer_source_ranges.map((cidr) => ({
+      ingress: [
+        ...config.public.load_balancer_source_ranges.map((cidr) => ({
         from: [{ ipBlock: { cidr } }],
         ports: [{ protocol: 'TCP', port: 8443 }],
-      })),
+        })),
+        metricsIngress(9113),
+      ],
       egress: [podEgress('director', 8444)],
     }),
     networkPolicy(namespace, 'director', selector('director'), {
       policyTypes: ['Ingress', 'Egress'],
-      ingress: [podIngress('edge', 8444), podIngress('gateway', 8444)],
+      ingress: [podIngress('edge', 8444), podIngress('gateway', 8444), metricsIngress(9464)],
       egress: [
         podEgress('gateway', 8443),
         ...config.networking.postgresql_cidrs.map((cidr) => portPeer(cidr, config.networking.postgresql_port)),
@@ -610,7 +645,7 @@ function networkPolicies(config) {
     }),
     networkPolicy(namespace, 'gateway', selector('gateway'), {
       policyTypes: ['Ingress', 'Egress'],
-      ingress: [podIngress('director', 8443)],
+      ingress: [podIngress('director', 8443), metricsIngress(9465)],
       egress: [
         podEgress('director', 8444),
         ...(config.internal_provider === null ? [] : [{
@@ -648,6 +683,16 @@ function ciliumFqdnPolicies(config) {
   ]);
 }
 
+function metricsIngress(port) {
+  return {
+    from: [{
+      namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'monitoring' } },
+      podSelector: { matchLabels: { 'dirizhor.io/role': 'metrics-scraper' } },
+    }],
+    ports: [{ protocol: 'TCP', port }],
+  };
+}
+
 function edgeEnvironment(config, names) {
   return {
     DIRECTOR_PUBLIC_HOST: config.public.host,
@@ -657,6 +702,7 @@ function edgeEnvironment(config, names) {
     DIRECTOR_UPSTREAM_PORT: '8444',
     DIRECTOR_UPSTREAM_TLS_NAME: names.director,
     DIRECTOR_MAX_BODY_SIZE: config.public.max_body_size,
+    EDGE_METRICS_LISTEN_PORT: '8080',
   };
 }
 
@@ -665,6 +711,8 @@ function directorEnvironment(config, names) {
     NODE_ENV: 'production',
     DIRECTOR_HOST: '0.0.0.0',
     DIRECTOR_PORT: '8444',
+    DIRECTOR_METRICS_HOST: '0.0.0.0',
+    DIRECTOR_METRICS_PORT: '9464',
     DOCUMENT_STORE_ROOT: '/var/lib/dirizhor/documents',
     GATEWAY_BASE_URL: `https://${names.gateway}:8443`,
     DIRECTOR_PUBLIC_AUTH_MODE: 'session',
@@ -696,6 +744,8 @@ function gatewayEnvironment(config, names) {
     NODE_ENV: 'production',
     GATEWAY_HOST: '0.0.0.0',
     GATEWAY_PORT: '8443',
+    GATEWAY_METRICS_HOST: '0.0.0.0',
+    GATEWAY_METRICS_PORT: '9465',
     GATEWAY_STATE_DIR: '/var/lib/dirizhor/gateway',
     DIRECTOR_BASE_URL: `https://${names.director}:8444`,
     GATEWAY_ENABLE_FIXTURE_PROVIDER: 'false',

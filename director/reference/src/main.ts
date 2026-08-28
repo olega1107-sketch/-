@@ -13,6 +13,7 @@ import { DirectorService } from './director-service.js';
 import { FileDocumentStore } from './file-document-store.js';
 import { HttpAgentGatewayClient } from './http-agent-gateway-client.js';
 import { MemoryIngestService } from './memory-ingest-service.js';
+import { closeMetricsServer, PrometheusMetrics, startMetricsServer } from './metrics.js';
 import { OidcService } from './oidc-service.js';
 import { createOpenidClientProvider } from './openid-client-provider.js';
 import { PostgresDatabase } from './postgres-database.js';
@@ -42,6 +43,7 @@ import {
 
 async function main(): Promise<void> {
   const config = loadDirectorConfig();
+  const metrics = new PrometheusMetrics('director');
   const databaseCa =
     config.databaseCaPath === undefined
       ? undefined
@@ -251,8 +253,20 @@ async function main(): Promise<void> {
       }),
     },
     https,
+    ...(config.metrics === undefined ? {} : { metrics }),
   });
   await app.listen({ host: config.host, port: config.port });
+  let metricsServer;
+  try {
+    metricsServer = config.metrics === undefined
+      ? undefined
+      : await startMetricsServer({ ...config.metrics, metrics });
+  } catch (error) {
+    await app.close();
+    await gatewayDispatcher?.close();
+    await database.close();
+    throw error;
+  }
   const scheme = config.allowInsecureDevelopment ? 'http' : 'https';
   process.stdout.write(`Reference Director listening at ${scheme}://${config.host}:${config.port}\n`);
 
@@ -261,6 +275,7 @@ async function main(): Promise<void> {
     if (shutdownStarted) return;
     shutdownStarted = true;
     try {
+      await closeMetricsServer(metricsServer);
       await app.close();
       await gatewayDispatcher?.close();
       await database.close();

@@ -1,0 +1,64 @@
+{
+  "items": [
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {"name": "dirizhor-monitoring-operator", "namespace": "monitoring"},
+      "rules": [
+        {"apiGroups": ["monitoring.coreos.com"], "resources": ["alertmanagers", "alertmanagers/finalizers", "alertmanagers/status", "alertmanagerconfigs", "prometheuses", "prometheuses/finalizers", "prometheuses/status", "prometheusagents", "prometheusagents/status", "thanosrulers", "thanosrulers/status", "scrapeconfigs"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
+        {"apiGroups": ["monitoring.coreos.com"], "resources": ["servicemonitors", "podmonitors", "probes", "prometheusrules"], "verbs": ["get", "list", "watch"]},
+        {"apiGroups": ["apps"], "resources": ["statefulsets"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
+        {"apiGroups": [""], "resources": ["configmaps", "secrets", "services", "endpoints"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]},
+        {"apiGroups": [""], "resources": ["pods"], "verbs": ["get", "list", "watch", "delete"]},
+        {"apiGroups": ["", "events.k8s.io"], "resources": ["events"], "verbs": ["create", "patch"]},
+        {"apiGroups": ["discovery.k8s.io"], "resources": ["endpointslices"], "verbs": ["get", "list", "watch", "create", "update", "patch", "delete"]}
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {"name": "dirizhor-monitoring-operator", "namespace": "monitoring"},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "dirizhor-monitoring-operator"},
+      "subjects": [{"kind": "ServiceAccount", "name": "dirizhor-monitoring-operator", "namespace": "monitoring"}]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "Role",
+      "metadata": {"name": "dirizhor-monitoring-pilot-read", "namespace": "dirizhor-pilot"},
+      "rules": [
+        {"apiGroups": ["monitoring.coreos.com"], "resources": ["servicemonitors", "podmonitors", "probes", "prometheusrules"], "verbs": ["get", "list", "watch"]},
+        {"apiGroups": [""], "resources": ["services", "endpoints", "pods"], "verbs": ["get", "list", "watch"]},
+        {"apiGroups": ["discovery.k8s.io"], "resources": ["endpointslices"], "verbs": ["get", "list", "watch"]}
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {"name": "dirizhor-monitoring-operator-pilot-read", "namespace": "dirizhor-pilot"},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "dirizhor-monitoring-pilot-read"},
+      "subjects": [{"kind": "ServiceAccount", "name": "dirizhor-monitoring-operator", "namespace": "monitoring"}]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "RoleBinding",
+      "metadata": {"name": "dirizhor-monitoring-prometheus-pilot-read", "namespace": "dirizhor-pilot"},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "dirizhor-monitoring-pilot-read"},
+      "subjects": [{"kind": "ServiceAccount", "name": "dirizhor-monitoring-prometheus", "namespace": "monitoring"}]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRole",
+      "metadata": {"name": "dirizhor-monitoring-read-own-namespace"},
+      "rules": [
+        {"apiGroups": [""], "resources": ["namespaces"], "resourceNames": ["monitoring"], "verbs": ["get"]}
+      ]
+    },
+    {
+      "apiVersion": "rbac.authorization.k8s.io/v1",
+      "kind": "ClusterRoleBinding",
+      "metadata": {"name": "dirizhor-monitoring-read-own-namespace"},
+      "roleRef": {"apiGroup": "rbac.authorization.k8s.io", "kind": "ClusterRole", "name": "dirizhor-monitoring-read-own-namespace"},
+      "subjects": [{"kind": "ServiceAccount", "name": "dirizhor-monitoring-operator", "namespace": "monitoring"}]
+    }
+  ]
+}

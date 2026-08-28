@@ -1,0 +1,136 @@
+fullnameOverride: dirizhor-monitoring
+
+global:
+  rbac:
+    create: false
+
+crds:
+  enabled: true
+
+defaultRules:
+  create: false
+
+grafana:
+  enabled: false
+
+kubernetesServiceMonitors:
+  enabled: false
+
+kubeApiServer:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubelet:
+  enabled: false
+coreDns:
+  enabled: false
+kubeDns:
+  enabled: false
+kubeStateMetrics:
+  enabled: false
+kube-state-metrics:
+  enabled: false
+nodeExporter:
+  enabled: false
+prometheus-node-exporter:
+  enabled: false
+
+prometheusOperator:
+  namespaces:
+    releaseNamespace: true
+  kubeletService:
+    enabled: false
+  image:
+    sha: e52bb28fd41c98dd407c7a8cba8bdcfe7eabd7447e250afaf1fe7bb816dedbff
+  admissionWebhooks:
+    enabled: true
+    patch:
+      enabled: false
+    certManager:
+      enabled: true
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 300m
+      memory: 256Mi
+
+prometheus:
+  service:
+    enabled: false
+  prometheusSpec:
+    image:
+      sha: 50c707e96da5ade383cb1707790576480485e93de06aa60ad8802cb5f744bd0a
+    replicas: 1
+    retention: 720h
+    retentionSize: 8GB
+    walCompression: true
+    serviceMonitorSelectorNilUsesHelmValues: false
+    serviceMonitorSelector:
+      matchLabels:
+        dirizhor.io/monitoring: pilot
+    ruleSelectorNilUsesHelmValues: false
+    ruleSelector:
+      matchLabels:
+        dirizhor.io/monitoring: pilot
+    podMetadata:
+      labels:
+        dirizhor.io/role: metrics-scraper
+    resources:
+      requests:
+        cpu: 300m
+        memory: 512Mi
+      limits:
+        cpu: 500m
+        memory: 768Mi
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: do-block-storage-retain
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 10Gi
+
+alertmanager:
+  service:
+    enabled: false
+  alertmanagerSpec:
+    image:
+      tag: v0.34.0@sha256:690c7b525f4367aa91f73e2f91c632206d32e97c6384bdbf2fb7a861b420340d
+    version: v0.34.0
+    replicas: 1
+    retention: 720h
+    resources:
+      requests:
+        cpu: 50m
+        memory: 128Mi
+      limits:
+        cpu: 150m
+        memory: 256Mi
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: do-block-storage-retain
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 2Gi
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: disabled
+      routes:
+        - receiver: disabled
+          matchers:
+            - alertname = "Watchdog"
+    receivers:
+      - name: disabled

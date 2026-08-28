@@ -1,0 +1,46 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: dirizhor-pilot
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  groups:
+    - name: dirizhor-pilot-availability
+      rules:
+        - alert: DirizhorMetricsTargetDown
+          expr: up{service=~"edge|director|gateway"} == 0
+          for: 2m
+          labels:
+            severity: critical
+          annotations:
+            summary: Dirizhor metrics target is unavailable.
+        - alert: DirizhorReadinessUnavailable
+          expr: min_over_time(dirizhor_readiness{service=~"director|gateway"}[2m]) < 1 or min_over_time(nginx_up{service="edge"}[2m]) < 1
+          for: 120s
+          labels:
+            severity: critical
+          annotations:
+            summary: Dirizhor readiness has been unavailable for 120 seconds.
+        - alert: DirizhorHttpErrorRateHigh
+          expr: sum by (service) (rate(dirizhor_http_requests_total{status_class="5xx"}[5m])) / clamp_min(sum by (service) (rate(dirizhor_http_requests_total[5m])), 0.001) > 0.01
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Dirizhor HTTP 5xx rate exceeds 1 percent for 5 minutes.
+        - alert: DirizhorHttpLatencyHigh
+          expr: histogram_quantile(0.95, sum by (le, service) (rate(dirizhor_http_request_duration_seconds_bucket[5m]))) > 1.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Dirizhor HTTP p95 latency exceeds 1500 ms for 5 minutes.
+        - alert: DirizhorOidcCallbackFailure
+          expr: sum by (service) (rate(dirizhor_http_requests_total{service="director",route="/api/v1/auth/oidc/callback",status_class="5xx"}[5m])) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Dirizhor OIDC callback returns server errors.

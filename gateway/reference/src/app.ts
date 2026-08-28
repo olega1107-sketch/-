@@ -7,6 +7,7 @@ import Fastify, { type FastifyRequest } from 'fastify';
 
 import { DirectorClientError, GatewayProtocolError } from './errors.js';
 import type { GatewayService } from './gateway-service.js';
+import type { HttpMetricRecorder } from './metrics.js';
 import type { ServiceAuthenticator } from './ports.js';
 import {
   AgentCancellationReceiptSchema,
@@ -24,6 +25,7 @@ export interface GatewayAppOptions {
   authenticator: ServiceAuthenticator;
   https?: HttpsServerOptions | null;
   readiness?: () => Promise<void>;
+  metrics?: HttpMetricRecorder;
 }
 
 const errorResponses = {
@@ -51,6 +53,24 @@ export function buildGatewayApp(options: GatewayAppOptions) {
     logger: false,
     https: options.https ?? null,
   }).withTypeProvider<TypeBoxTypeProvider>();
+  const requestStartedAt = new WeakMap<FastifyRequest, bigint>();
+  if (options.metrics !== undefined) {
+    app.addHook('onRequest', (request, _reply, done) => {
+      requestStartedAt.set(request, process.hrtime.bigint());
+      done();
+    });
+    app.addHook('onResponse', (request, reply, done) => {
+      const startedAt = requestStartedAt.get(request);
+      if (startedAt !== undefined) {
+        options.metrics?.recordHttpResponse(
+          request.routeOptions.url,
+          reply.statusCode,
+          Number(process.hrtime.bigint() - startedAt) / 1_000_000_000,
+        );
+      }
+      done();
+    });
+  }
 
   app.get(
     '/health/live',
@@ -64,11 +84,13 @@ export function buildGatewayApp(options: GatewayAppOptions) {
     async (_request, reply) => {
       try {
         await options.readiness?.();
+        options.metrics?.recordReadiness(true);
         return reply
           .header('cache-control', 'no-store')
           .status(200)
           .send({ status: 'ok' });
       } catch {
+        options.metrics?.recordReadiness(false);
         return reply
           .header('cache-control', 'no-store')
           .status(503)

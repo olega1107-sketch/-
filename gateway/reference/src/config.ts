@@ -15,6 +15,10 @@ const hostnamePattern = /^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-
 export interface GatewayConfig {
   host: string;
   port: number;
+  metrics?: {
+    host: '127.0.0.1' | '0.0.0.0';
+    port: number;
+  };
   stateDirectory: string;
   spoolKeyBase64: string;
   directorBaseUrl: string;
@@ -66,10 +70,12 @@ export function loadGatewayConfig(
   if (!Number.isSafeInteger(port) || port < 1 || port > 65_535) {
     throw new Error('GATEWAY_PORT must be an integer between 1 and 65535.');
   }
+  const metrics = configuredMetrics(env);
 
   const base = {
     host: env.GATEWAY_HOST ?? '127.0.0.1',
     port,
+    ...(metrics === undefined ? {} : { metrics }),
     stateDirectory: required(env, 'GATEWAY_STATE_DIR'),
     spoolKeyBase64: requiredSecret(
       env,
@@ -113,6 +119,28 @@ export function loadGatewayConfig(
       caPath: optionalPath(env, 'GATEWAY_DIRECTOR_CA_PATH') ?? tls.caPath,
     },
   };
+}
+
+function configuredMetrics(
+  env: NodeJS.ProcessEnv,
+): GatewayConfig['metrics'] {
+  const configuredPort = optionalPath(env, 'GATEWAY_METRICS_PORT');
+  const configuredHost = optionalPath(env, 'GATEWAY_METRICS_HOST');
+  if (configuredPort === undefined) {
+    if (configuredHost !== undefined) {
+      throw new Error('GATEWAY_METRICS_PORT is required when GATEWAY_METRICS_HOST is set.');
+    }
+    return undefined;
+  }
+  const port = Number(configuredPort);
+  if (!Number.isSafeInteger(port) || port < 1024 || port > 65_535) {
+    throw new Error('GATEWAY_METRICS_PORT must be an integer between 1024 and 65535.');
+  }
+  const host = configuredHost ?? '127.0.0.1';
+  if (host !== '127.0.0.1' && host !== '0.0.0.0') {
+    throw new Error('GATEWAY_METRICS_HOST must be 127.0.0.1 or 0.0.0.0.');
+  }
+  return { host, port };
 }
 
 function configuredServiceIdentity(

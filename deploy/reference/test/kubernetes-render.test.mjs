@@ -86,7 +86,7 @@ test('renderer writes ordered private bundles without Secret or PostgreSQL workl
       '15-runtime-privilege-job.json',
       '20-workloads.json',
     ]);
-    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 27);
+    assert.equal(evidence.files.reduce((sum, file) => sum + file.resource_count, 0), 28);
     assert.equal(evidence.secret_resources_included, false);
     assert.equal(evidence.target_schema_version, 3);
     assert.equal(evidence.exposure, 'internal');

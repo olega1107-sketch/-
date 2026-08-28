@@ -36,6 +36,7 @@ import {
 import type { DecisionService } from './decision-service.js';
 import { DirectorProtocolError } from './errors.js';
 import type { MemoryIngestService } from './memory-ingest-service.js';
+import type { HttpMetricRecorder } from './metrics.js';
 import type { AuthenticatedUser, UserAuthenticator } from './memory-ports.js';
 import {
   oidcTransactionCookieName,
@@ -97,6 +98,7 @@ export interface DirectorAppOptions {
   readiness?: () => Promise<void>;
   trustedProxies?: string[];
   bodyLimitBytes?: number;
+  metrics?: HttpMetricRecorder;
   publicApi?: {
     memoryIngest: MemoryIngestService;
     authenticator: UserAuthenticator;
@@ -188,6 +190,24 @@ export function buildDirectorApp(options: DirectorAppOptions) {
   }).withTypeProvider<TypeBoxTypeProvider>();
   void app.register(cookie);
   const userPrincipals = new WeakMap<FastifyRequest, AuthenticatedUser>();
+  const requestStartedAt = new WeakMap<FastifyRequest, bigint>();
+  if (options.metrics !== undefined) {
+    app.addHook('onRequest', (request, _reply, done) => {
+      requestStartedAt.set(request, process.hrtime.bigint());
+      done();
+    });
+    app.addHook('onResponse', (request, reply, done) => {
+      const startedAt = requestStartedAt.get(request);
+      if (startedAt !== undefined) {
+        options.metrics?.recordHttpResponse(
+          request.routeOptions.url,
+          reply.statusCode,
+          Number(process.hrtime.bigint() - startedAt) / 1_000_000_000,
+        );
+      }
+      done();
+    });
+  }
 
   app.get(
     '/health/live',
@@ -201,11 +221,13 @@ export function buildDirectorApp(options: DirectorAppOptions) {
     async (_request, reply) => {
       try {
         await options.readiness?.();
+        options.metrics?.recordReadiness(true);
         return reply
           .header('cache-control', 'no-store')
           .status(200)
           .send({ status: 'ok' });
       } catch {
+        options.metrics?.recordReadiness(false);
         return reply
           .header('cache-control', 'no-store')
           .status(503)

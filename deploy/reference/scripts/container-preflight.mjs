@@ -284,6 +284,7 @@ async function validateEdgeFiles(root) {
       'DIRECTOR_UPSTREAM_HOST',
       'DIRECTOR_UPSTREAM_PORT',
       'DIRIZHOR_NGINX_INCLUDE_DIR',
+      'EDGE_METRICS_LISTEN_PORT',
       'PUBLIC_LISTEN_PORT',
     ]),
   );

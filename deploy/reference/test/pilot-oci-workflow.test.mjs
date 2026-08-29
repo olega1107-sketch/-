@@ -96,7 +96,9 @@ test('restore verifier OCI release is manual, protected, digest-only, and isolat
   assert.match(workflow, /--exit-on-eol 1/);
   assert.match(workflow, /cosign sign --yes/);
   assert.match(workflow, /cosign verify-attestation --type cyclonedx/);
-  assert.match(workflow, /image_ref="\$\{REGISTRY\}\/restore-verifier@\$\{digest\}"/);
+  assert.match(workflow, /VERIFIER_IMAGE_REPOSITORY: node-build/);
+  assert.match(workflow, /image="\$\{REGISTRY\}\/\$\{VERIFIER_IMAGE_REPOSITORY\}:restore-verifier-\$\{RELEASE_SUFFIX\}"/);
+  assert.match(workflow, /image_ref="\$\{REGISTRY\}\/\$\{VERIFIER_IMAGE_REPOSITORY\}@\$\{digest\}"/);
   assert.match(workflow, /secrets\.DIGITALOCEAN_ACCESS_TOKEN/);
   assert.match(workflow, /rm -f "\$\{HOME\}\/\.docker\/config\.json"/);
   assert.equal(workflow.includes(':latest'), false);

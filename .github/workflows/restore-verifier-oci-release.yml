@@ -19,6 +19,9 @@ concurrency:
 env:
   REGISTRY_HOST: registry.digitalocean.com
   REGISTRY: registry.digitalocean.com/dirizherpilotregistry
+  # The starter registry has a five-repository ceiling. A distinct verifier tag
+  # and immutable digest share the existing node-build repository without a new repo.
+  VERIFIER_IMAGE_REPOSITORY: node-build
   PNPM_VERSION: 11.18.0
   DOCKER_VERSION: 28.3.3
   BUILDX_VERSION: 0.28.0
@@ -141,7 +144,7 @@ jobs:
           set -euo pipefail
           evidence="${RUNNER_TEMP}/restore-verifier-evidence"
           install -d -m 0700 "${evidence}"
-          image="${REGISTRY}/restore-verifier:${RELEASE_SUFFIX}"
+          image="${REGISTRY}/${VERIFIER_IMAGE_REPOSITORY}:restore-verifier-${RELEASE_SUFFIX}"
           docker buildx build \
             --file director/reference/Dockerfile.restore-verifier \
             --platform linux/amd64 --provenance=mode=max --sbom=true \
@@ -151,7 +154,7 @@ jobs:
             --build-arg "PNPM_VERSION=${PNPM_VERSION}" \
             --tag "${image}" --push .
           digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/build-metadata.json")"
-          image_ref="${REGISTRY}/restore-verifier@${digest}"
+          image_ref="${REGISTRY}/${VERIFIER_IMAGE_REPOSITORY}@${digest}"
           syft "${image_ref}" -o "cyclonedx-json=${evidence}/sbom.cdx.json"
           jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "${evidence}/sbom.cdx.json" > /dev/null
           printf '%s\n' '# Suppressions are prohibited by the pilot policy.' > "${evidence}/trivy-empty.ignore"

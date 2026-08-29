@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1.7
+
+ARG NODE_BUILD_IMAGE
+ARG NODE_RUNTIME_IMAGE
+
+FROM ${NODE_BUILD_IMAGE} AS build
+ARG NODE_BUILD_IMAGE
+ARG NODE_RUNTIME_IMAGE
+ARG PNPM_VERSION
+RUN node -e 'const p=/^[^@\s]+@sha256:[0-9a-f]{64}$/; for (const n of ["NODE_BUILD_IMAGE", "NODE_RUNTIME_IMAGE"]) if (!p.test(process.env[n] || "")) process.exit(1)' && \
+    test -n "${PNPM_VERSION}" && test "$(pnpm --version)" = "${PNPM_VERSION}"
+
+WORKDIR /workspace/director/reference
+COPY director/reference/package.json director/reference/pnpm-lock.yaml director/reference/pnpm-workspace.yaml ./
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
+    pnpm config set store-dir /pnpm/store && \
+    pnpm fetch --frozen-lockfile
+
+COPY director/reference/ ./
+COPY db/ /workspace/db/
+RUN --mount=type=cache,target=/pnpm/store,sharing=locked \
+    pnpm install --frozen-lockfile --offline --ignore-scripts
+
+FROM ${NODE_RUNTIME_IMAGE} AS runtime
+ENV NODE_ENV=production
+RUN apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0 && \
+    rm -rf /usr/local/lib/node_modules/npm && \
+    rm -f /usr/local/bin/npm /usr/local/bin/npx && \
+    test ! -e /usr/local/lib/node_modules/npm && \
+    test ! -L /usr/local/bin/npm && \
+    test ! -L /usr/local/bin/npx && \
+    node --version >/dev/null
+WORKDIR /app/director/reference
+COPY --from=build --chown=10001:10001 /workspace/director/reference/package.json ./package.json
+COPY --from=build --chown=10001:10001 /workspace/director/reference/node_modules/ ./node_modules/
+COPY --from=build --chown=10001:10001 /workspace/director/reference/scripts/ ./scripts/
+COPY --from=build --chown=10001:10001 /workspace/director/reference/src/ ./src/
+COPY --from=build --chown=10001:10001 /workspace/db/ /app/db/
+
+USER 10001:10001
+ENTRYPOINT ["node", "--import", "tsx", "scripts/document-store-evidence.ts"]

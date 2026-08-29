@@ -7,6 +7,10 @@ const workflowUrl = new URL(
   import.meta.url,
 );
 const nodeBuildUrl = new URL('../Dockerfile.node-build', import.meta.url);
+const restoreVerifierWorkflowUrl = new URL(
+  '../../../.github/workflows/restore-verifier-oci-release.yml',
+  import.meta.url,
+);
 
 test('pilot OCI release is manual, pinned, protected, and fail-closed', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');
@@ -74,6 +78,29 @@ test('pilot OCI release is manual, pinned, protected, and fail-closed', async ()
     false,
     'short-lived signing token must remain step-scoped',
   );
+});
+
+test('restore verifier OCI release is manual, protected, digest-only, and isolated', async () => {
+  const workflow = await readFile(restoreVerifierWorkflowUrl, 'utf8');
+
+  assert.match(workflow, /^  workflow_dispatch:$/m);
+  assert.equal(/^  (?:push|pull_request):/m.test(workflow), false);
+  assert.match(workflow, /^  contents: read$/m);
+  assert.match(workflow, /^  id-token: write$/m);
+  assert.match(workflow, /^    environment: digitalocean-pilot$/m);
+  assert.match(workflow, /director\/reference\/Dockerfile\.restore-verifier/);
+  assert.match(workflow, /--platform linux\/amd64/);
+  assert.match(workflow, /--provenance=mode=max/);
+  assert.match(workflow, /--sbom=true/);
+  assert.match(workflow, /--severity HIGH,CRITICAL/);
+  assert.match(workflow, /--exit-on-eol 1/);
+  assert.match(workflow, /cosign sign --yes/);
+  assert.match(workflow, /cosign verify-attestation --type cyclonedx/);
+  assert.match(workflow, /image_ref="\$\{REGISTRY\}\/restore-verifier@\$\{digest\}"/);
+  assert.match(workflow, /secrets\.DIGITALOCEAN_ACCESS_TOKEN/);
+  assert.match(workflow, /rm -f "\$\{HOME\}\/\.docker\/config\.json"/);
+  assert.equal(workflow.includes(':latest'), false);
+  assert.equal(workflow.match(/secrets\./g)?.length, 1);
 });
 
 test('Node build image pins its parent and exact package manager', async () => {

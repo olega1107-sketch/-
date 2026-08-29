@@ -1,0 +1,121 @@
+# Template only. Render into a new protected directory; do not apply placeholders.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: dirizhor-restore-verifier-__RECOVERY_SET_ID__
+  namespace: __RESTORE_NAMESPACE__
+  labels:
+    app.kubernetes.io/name: dirizhor-restore-verifier
+    app.kubernetes.io/component: restore-verifier
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 1800
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dirizhor-restore-verifier
+        app.kubernetes.io/component: restore-verifier
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      imagePullSecrets:
+        - name: __IMAGE_PULL_SECRET__
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: verifier
+          image: __RESTORE_VERIFIER_IMAGE_DIGEST__
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: DIRECTOR_EVIDENCE_DATABASE_URL_FILE
+              value: /run/secrets/database/database-url
+            - name: DIRECTOR_EVIDENCE_DATABASE_CA_PATH
+              value: /run/secrets/postgres/ca.crt
+            - name: DIRECTOR_EVIDENCE_EXPECT_DATABASE
+              value: __RESTORE_DATABASE_NAME__
+            - name: DIRECTOR_EVIDENCE_DOCUMENT_STORE_ROOT
+              value: /restore/dirizhor-documents
+            - name: DIRECTOR_EVIDENCE_EXPECT_DOCUMENT_MANIFEST_HASH
+              value: __DOCUMENT_MANIFEST_HASH__
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+              ephemeral-storage: 128Mi
+            limits:
+              cpu: 500m
+              memory: 512Mi
+              ephemeral-storage: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            privileged: false
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: database
+              mountPath: /run/secrets/database
+              readOnly: true
+            - name: postgres-ca
+              mountPath: /run/secrets/postgres
+              readOnly: true
+            - name: documents
+              mountPath: /restore/dirizhor-documents
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: database
+          secret:
+            secretName: __TEST_ONLY_DATABASE_SECRET__
+            defaultMode: 256
+        - name: postgres-ca
+          secret:
+            secretName: __TEST_ONLY_POSTGRES_CA_SECRET__
+            defaultMode: 256
+        - name: documents
+          persistentVolumeClaim:
+            claimName: __RESTORE_DOCUMENTS_PVC__
+            readOnly: true
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: dirizhor-restore-verifier
+  namespace: __RESTORE_NAMESPACE__
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: dirizhor-restore-verifier
+  policyTypes: ["Ingress", "Egress"]
+  ingress: []
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - ipBlock:
+            cidr: __RESTORE_POSTGRES_PRIVATE_CIDR__
+      ports:
+        - protocol: TCP
+          port: 5432

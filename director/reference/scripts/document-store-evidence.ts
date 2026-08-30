@@ -5,6 +5,7 @@ import { Client, type ClientConfig } from 'pg';
 import { verifyDocumentStoreBackup } from '../src/backup-integrity.js';
 import { assertDatabaseMigrationsCurrent } from '../src/db-migrations.js';
 import type { SqlQueryable } from '../src/ports.js';
+import { connectionStringForStrictTls } from '../src/postgres-tls.js';
 import { requiredSecret } from '../src/secret-config.js';
 
 async function main(): Promise<void> {
@@ -84,8 +85,10 @@ async function main(): Promise<void> {
 
 async function clientConfig(): Promise<ClientConfig> {
   const caPath = optionalEnvironment('DIRECTOR_EVIDENCE_DATABASE_CA_PATH');
+  const connectionString = requiredSecret(process.env, 'DIRECTOR_EVIDENCE_DATABASE_URL');
   return {
-    connectionString: requiredSecret(process.env, 'DIRECTOR_EVIDENCE_DATABASE_URL'),
+    connectionString:
+      caPath === undefined ? connectionString : connectionStringForStrictTls(connectionString),
     application_name: 'dirizhor-document-store-evidence',
     ...(caPath === undefined
       ? {}

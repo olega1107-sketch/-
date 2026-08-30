@@ -11,6 +11,7 @@ import {
   type MigrationStatus,
 } from './db-migrations.js';
 import { requiredSecret } from './secret-config.js';
+import { connectionStringForStrictTls } from './postgres-tls.js';
 
 type Command = 'status' | 'migrate' | 'adopt-v1';
 
@@ -52,11 +53,13 @@ export async function runDatabaseMigrationCli(
 
 async function clientConfig(environment: NodeJS.ProcessEnv): Promise<ClientConfig> {
   const caPath = environment.DIRECTOR_MIGRATION_DATABASE_CA_PATH;
+  const connectionString = requiredSecret(
+    environment,
+    'DIRECTOR_MIGRATION_DATABASE_URL',
+  );
   return {
-    connectionString: requiredSecret(
-      environment,
-      'DIRECTOR_MIGRATION_DATABASE_URL',
-    ),
+    connectionString:
+      caPath === undefined ? connectionString : connectionStringForStrictTls(connectionString),
     application_name: 'dirizhor-migrator',
     ...(caPath === undefined
       ? {}

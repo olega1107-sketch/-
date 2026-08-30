@@ -25,6 +25,7 @@ import { PostgresDecisionRepository } from './postgres-decision-repository.js';
 import { PostgresAgentResultRepository } from './postgres-agent-result-repository.js';
 import { PostgresAuthorizationAuditRecorder } from './postgres-authorization-audit-recorder.js';
 import { PostgresPublicQueryRepository } from './postgres-public-query-repository.js';
+import { connectionStringForStrictTls } from './postgres-tls.js';
 import { PostgresSessionRepository } from './postgres-session-repository.js';
 import { PostgresTaskRepository } from './postgres-task-repository.js';
 import { PostgresUserSessionAuthenticator } from './postgres-user-session-authenticator.js';
@@ -49,7 +50,9 @@ async function main(): Promise<void> {
       ? undefined
       : await readFile(config.databaseCaPath, 'utf8');
   const database = new PostgresDatabase({
-    connectionString: config.databaseUrl,
+    connectionString: databaseCa === undefined
+      ? config.databaseUrl
+      : connectionStringForStrictTls(config.databaseUrl),
     max: config.databasePoolSize,
     ...(databaseCa === undefined
       ? {}

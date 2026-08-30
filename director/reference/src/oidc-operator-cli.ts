@@ -3,14 +3,17 @@ import { readFile } from 'node:fs/promises';
 import type { PoolConfig } from 'pg';
 
 import { PostgresDatabase } from './postgres-database.js';
+import { connectionStringForStrictTls } from './postgres-tls.js';
 import { requiredSecret } from './secret-config.js';
 
 export async function createOidcOperatorDatabase(
   applicationName: string,
 ): Promise<PostgresDatabase> {
   const caPath = process.env.DIRECTOR_PROVISIONING_DATABASE_CA_PATH;
+  const connectionString = requiredSecret(process.env, 'DIRECTOR_PROVISIONING_DATABASE_URL');
   const config: PoolConfig = {
-    connectionString: requiredSecret(process.env, 'DIRECTOR_PROVISIONING_DATABASE_URL'),
+    connectionString:
+      caPath === undefined ? connectionString : connectionStringForStrictTls(connectionString),
     application_name: applicationName,
     max: 1,
     ...(caPath === undefined

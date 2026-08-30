@@ -6,6 +6,7 @@ import { Client, type ClientConfig } from 'pg';
 
 import { inspectRuntimePrivileges } from './postgres-runtime-privilege-probe.js';
 import type { SqlQueryable } from './ports.js';
+import { connectionStringForStrictTls } from './postgres-tls.js';
 import { requiredSecret } from './secret-config.js';
 
 export async function runRuntimePrivilegeCli(
@@ -37,8 +38,10 @@ export async function runRuntimePrivilegeCli(
 
 async function clientConfig(environment: NodeJS.ProcessEnv): Promise<ClientConfig> {
   const caPath = environment.DIRECTOR_DATABASE_CA_PATH;
+  const connectionString = requiredSecret(environment, 'DATABASE_URL');
   return {
-    connectionString: requiredSecret(environment, 'DATABASE_URL'),
+    connectionString:
+      caPath === undefined ? connectionString : connectionStringForStrictTls(connectionString),
     application_name: 'dirizhor-runtime-privilege-probe',
     ...(caPath === undefined
       ? {}

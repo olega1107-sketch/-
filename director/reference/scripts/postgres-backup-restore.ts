@@ -20,6 +20,7 @@ import {
 } from '../src/db-migrations.js';
 import { FileDocumentStore } from '../src/file-document-store.js';
 import type { SqlQueryable } from '../src/ports.js';
+import { connectionStringForStrictTls } from '../src/postgres-tls.js';
 import { requiredSecret } from '../src/secret-config.js';
 
 interface DatabaseIdentity {
@@ -456,7 +457,9 @@ async function databaseSettings(
       : { ca: await readFile(caPath, 'utf8'), rejectUnauthorized: true };
   return {
     client: {
-      connectionString,
+      connectionString: ssl === undefined
+        ? connectionString
+        : connectionStringForStrictTls(connectionString),
       application_name: applicationName,
       ...(ssl === undefined ? {} : { ssl }),
     },

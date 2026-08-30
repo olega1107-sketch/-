@@ -77,10 +77,16 @@ spec:
           secret:
             secretName: __TEST_ONLY_DATABASE_SECRET__
             defaultMode: 256
+            items:
+              - key: database-url
+                path: database-url
         - name: postgres-ca
           secret:
             secretName: __TEST_ONLY_POSTGRES_CA_SECRET__
             defaultMode: 256
+            items:
+              - key: postgresql-ca.crt
+                path: ca.crt
         - name: documents
           persistentVolumeClaim:
             claimName: __RESTORE_DOCUMENTS_PVC__

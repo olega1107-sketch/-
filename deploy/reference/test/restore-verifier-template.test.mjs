@@ -13,6 +13,8 @@ test('restore verifier remains isolated, read-only, digest-pinned and test-only'
   assert.match(manifest, /readOnlyRootFilesystem: true/);
   assert.match(manifest, /__RESTORE_VERIFIER_IMAGE_DIGEST__/);
   assert.match(manifest, /__TEST_ONLY_DATABASE_SECRET__/);
+  assert.match(manifest, /key: database-url\n\s+path: database-url/);
+  assert.match(manifest, /key: postgresql-ca\.crt\n\s+path: ca\.crt/);
   assert.match(manifest, /__RESTORE_POSTGRES_PRIVATE_CIDR__/);
   assert.doesNotMatch(manifest, /kind:\s*(LoadBalancer|Ingress)\b|type:\s*LoadBalancer\b|hostNetwork:\s*true/);
 });

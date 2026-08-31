@@ -67,6 +67,7 @@ async function main(): Promise<void> {
   }
   const documentStore = new FileDocumentStore(config.documentStoreRoot);
   await documentStore.initialize();
+  metrics.recordDependencyReadiness(true, true);
   const capabilityTokens = new HmacCapabilityTokenIssuer(
     HmacCapabilityTokenIssuer.keyFromBase64(config.capabilityKeyBase64),
   );
@@ -184,7 +185,16 @@ async function main(): Promise<void> {
   const app = buildDirectorApp({
     service,
     readiness: async () => {
-      await Promise.all([database.query('SELECT 1'), documentStore.checkReady()]);
+      const [postgres, documentStoreProbe] = await Promise.allSettled([
+        database.query('SELECT 1'),
+        documentStore.checkReady(),
+      ]);
+      metrics.recordDependencyReadiness(
+        postgres.status === 'fulfilled',
+        documentStoreProbe.status === 'fulfilled',
+      );
+      if (postgres.status === 'rejected') throw postgres.reason;
+      if (documentStoreProbe.status === 'rejected') throw documentStoreProbe.reason;
     },
     trustedProxies: config.trustedProxyCidrs,
     authenticator:
@@ -208,7 +218,10 @@ async function main(): Promise<void> {
         documentStore,
       }),
       authenticator: userAuthenticator,
-      authorizationAudit: new PostgresAuthorizationAuditRecorder({ database }),
+      authorizationAudit: new PostgresAuthorizationAuditRecorder({
+        database,
+        onFailure: () => metrics.recordAuditWriteFailure(),
+      }),
       ...(sessionService === undefined
         ? {}
         : {

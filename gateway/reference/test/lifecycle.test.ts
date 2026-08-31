@@ -63,6 +63,14 @@ describe('GatewayService lifecycle', () => {
     expect(record?.pendingEvent).toBeUndefined();
   });
 
+  it('reports pending execution count and oldest accepted age without exposing records', async () => {
+    const { fixture, clock, service } = serviceFixture();
+    await service.execute(executeCommand(fixture));
+    clock.set('2026-08-10T10:10:00.000Z');
+
+    await expect(service.inspectQueue()).resolves.toEqual({ pending: 1, oldestSeconds: 600 });
+  });
+
   it('does not redeem context or invoke provider again for duplicate execute', async () => {
     const { fixture, director, adapter, clock, service } = serviceFixture();
     await service.execute(executeCommand(fixture));

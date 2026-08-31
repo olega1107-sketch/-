@@ -16,6 +16,7 @@ export interface PostgresAuthorizationAuditRecorderOptions {
   database: SqlDatabase;
   clock?: Clock;
   idGenerator?: IdGenerator;
+  onFailure?: () => void;
 }
 
 const randomIds: IdGenerator = { next: () => randomUUID() };
@@ -24,11 +25,13 @@ export class PostgresAuthorizationAuditRecorder implements AuthorizationAuditRec
   private readonly database: SqlDatabase;
   private readonly clock: Clock;
   private readonly idGenerator: IdGenerator;
+  private readonly onFailure: () => void;
 
   constructor(options: PostgresAuthorizationAuditRecorderOptions) {
     this.database = options.database;
     this.clock = options.clock ?? systemClock;
     this.idGenerator = options.idGenerator ?? randomIds;
+    this.onFailure = options.onFailure ?? (() => undefined);
   }
 
   async recordDenied(denial: AuthorizationDenial): Promise<void> {
@@ -37,10 +40,11 @@ export class PostgresAuthorizationAuditRecorder implements AuthorizationAuditRec
     const createdAt = this.clock.now().toISOString();
     const reasonCodes = normalizedNonEmpty(denial.reasonCodes, 'Authorization reason code');
     const missingPermissions = normalized(denial.missingPermissions);
-    await this.database.transaction(async (transaction) => {
-      const projectId = await resolveProjectId(transaction, denial);
-      await transaction.query(
-        `
+    try {
+      await this.database.transaction(async (transaction) => {
+        const projectId = await resolveProjectId(transaction, denial);
+        await transaction.query(
+          `
           INSERT INTO dirizhor.authorization_decisions (
             id,
             principal_type,
@@ -70,20 +74,20 @@ export class PostgresAuthorizationAuditRecorder implements AuthorizationAuditRec
             $9::timestamptz
           )
         `,
-        [
-          decisionId,
-          denial.principalUserId,
-          requiredText(denial.action, 'Authorization action'),
-          requiredText(denial.resourceType, 'Authorization resource type'),
-          denial.resourceId,
-          projectId,
-          reasonCodes,
-          denial.requestId,
-          createdAt,
-        ],
-      );
-      await transaction.query(
-        `
+          [
+            decisionId,
+            denial.principalUserId,
+            requiredText(denial.action, 'Authorization action'),
+            requiredText(denial.resourceType, 'Authorization resource type'),
+            denial.resourceId,
+            projectId,
+            reasonCodes,
+            denial.requestId,
+            createdAt,
+          ],
+        );
+        await transaction.query(
+          `
           INSERT INTO dirizhor.audit_events (
             id,
             actor_type,
@@ -111,27 +115,35 @@ export class PostgresAuthorizationAuditRecorder implements AuthorizationAuditRec
             $9::uuid
           )
         `,
-        [
-          auditEventId,
-          denial.actorUserId,
-          denial.resourceId === null ? null : denial.resourceType,
-          denial.resourceId,
-          projectId,
-          JSON.stringify({
-            action: denial.action,
-            reason_codes: reasonCodes,
-            missing_permissions: missingPermissions,
-            evaluated_principal_id: denial.principalUserId,
-            response_concealed: denial.responseConcealed,
-            response_status: denial.responseStatusCode,
-            response_code: denial.responseCode,
-          }),
-          createdAt,
-          denial.requestId,
-          decisionId,
-        ],
-      );
-    });
+          [
+            auditEventId,
+            denial.actorUserId,
+            denial.resourceId === null ? null : denial.resourceType,
+            denial.resourceId,
+            projectId,
+            JSON.stringify({
+              action: denial.action,
+              reason_codes: reasonCodes,
+              missing_permissions: missingPermissions,
+              evaluated_principal_id: denial.principalUserId,
+              response_concealed: denial.responseConcealed,
+              response_status: denial.responseStatusCode,
+              response_code: denial.responseCode,
+            }),
+            createdAt,
+            denial.requestId,
+            decisionId,
+          ],
+        );
+      });
+    } catch (error) {
+      try {
+        this.onFailure();
+      } catch {
+        // Metrics must not mask the audit failure or change fail-closed semantics.
+      }
+      throw error;
+    }
   }
 }
 

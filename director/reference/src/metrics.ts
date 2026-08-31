@@ -23,6 +23,9 @@ const durationBuckets = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5] as const;
 export class PrometheusMetrics implements HttpMetricRecorder {
   readonly #startedAtSeconds = Math.floor(Date.now() / 1_000);
   #ready = true;
+  #postgresReady = false;
+  #documentStoreReady = false;
+  #auditWriteFailures = 0;
   readonly #requestCounts = new Map<string, RequestCount>();
   readonly #durations = new Map<string, DurationSample>();
 
@@ -60,6 +63,15 @@ export class PrometheusMetrics implements HttpMetricRecorder {
     this.#ready = ready;
   }
 
+  recordDependencyReadiness(postgresReady: boolean, documentStoreReady: boolean): void {
+    this.#postgresReady = postgresReady;
+    this.#documentStoreReady = documentStoreReady;
+  }
+
+  recordAuditWriteFailure(): void {
+    this.#auditWriteFailures += 1;
+  }
+
   render(): string {
     const lines = [
       '# HELP dirizhor_service_up Process is responding on its internal metrics port.',
@@ -68,6 +80,15 @@ export class PrometheusMetrics implements HttpMetricRecorder {
       '# HELP dirizhor_readiness Last dependency readiness result recorded by the service.',
       '# TYPE dirizhor_readiness gauge',
       `dirizhor_readiness{service="${this.service}"} ${this.#ready ? 1 : 0}`,
+      '# HELP dirizhor_postgres_up Latest PostgreSQL readiness probe result.',
+      '# TYPE dirizhor_postgres_up gauge',
+      `dirizhor_postgres_up{service="${this.service}"} ${this.#postgresReady ? 1 : 0}`,
+      '# HELP dirizhor_document_store_up Latest Document Store readiness probe result.',
+      '# TYPE dirizhor_document_store_up gauge',
+      `dirizhor_document_store_up{service="${this.service}"} ${this.#documentStoreReady ? 1 : 0}`,
+      '# HELP dirizhor_audit_write_failures_total Failed authorization audit writes.',
+      '# TYPE dirizhor_audit_write_failures_total counter',
+      `dirizhor_audit_write_failures_total{service="${this.service}"} ${this.#auditWriteFailures}`,
       '# HELP process_start_time_seconds Unix time when the process started.',
       '# TYPE process_start_time_seconds gauge',
       `process_start_time_seconds{service="${this.service}"} ${this.#startedAtSeconds}`,

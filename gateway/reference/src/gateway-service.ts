@@ -62,6 +62,11 @@ export interface GatewayServiceOptions {
   onBackgroundError?: (error: unknown, agentRunId: string) => void;
 }
 
+export interface GatewayQueueSnapshot {
+  pending: number;
+  oldestSeconds: number;
+}
+
 const terminalPhases = new Set(['completed', 'failed', 'cancelled']);
 
 export class GatewayService {
@@ -214,6 +219,17 @@ export class GatewayService {
       return;
     }
     await Promise.all(records.map((record) => this.drain(record.agentRunId)));
+  }
+
+  async inspectQueue(): Promise<GatewayQueueSnapshot> {
+    const pending = await this.store.listPending();
+    const now = this.clock.now().getTime();
+    const oldestSeconds = pending.reduce((oldest, record) => {
+      const acceptedAt = Date.parse(record.acceptedAt);
+      if (!Number.isFinite(acceptedAt)) return oldest;
+      return Math.max(oldest, (now - acceptedAt) / 1_000);
+    }, 0);
+    return { pending: pending.length, oldestSeconds: Math.max(0, oldestSeconds) };
   }
 
   private async run(agentRunId: string): Promise<void> {

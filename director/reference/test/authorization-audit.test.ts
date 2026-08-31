@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   executeAuthorized,
@@ -160,6 +160,27 @@ describe('PostgreSQL authorization denial audit', () => {
         },
       ),
     ).rejects.toThrow('authorization audit unavailable');
+  });
+
+  it('reports an audit write failure without changing fail-closed behavior', async () => {
+    fixture = await createDirectorFixture();
+    const onFailure = vi.fn();
+    await fixture.database.query(
+      `
+        INSERT INTO dirizhor.audit_events (id, actor_type, action, request_id)
+        VALUES ($1::uuid, 'system', 'fixture.reserved', $2::uuid)
+      `,
+      [conflictAuditId, requestId],
+    );
+    const recorder = new PostgresAuthorizationAuditRecorder({
+      database: fixture.database,
+      clock: fixture.clock,
+      idGenerator: new SequenceIds([rolledBackDecisionId, conflictAuditId]),
+      onFailure,
+    });
+
+    await expect(recorder.recordDenied(denial())).rejects.toThrow();
+    expect(onFailure).toHaveBeenCalledTimes(1);
   });
 });
 

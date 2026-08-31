@@ -135,13 +135,28 @@ async function main(): Promise<void> {
   });
 
   await service.resumePending();
+  const refreshQueueMetrics = async (): Promise<void> => {
+    try {
+      const queue = await service.inspectQueue();
+      metrics.recordQueue(queue.pending, queue.oldestSeconds);
+    } catch {
+      metrics.recordQueueScanFailure();
+    }
+  };
+  await refreshQueueMetrics();
   await app.listen({ host: config.host, port: config.port });
   let metricsServer;
+  let queueMetricsTimer: NodeJS.Timeout | undefined;
   try {
     metricsServer = config.metrics === undefined
       ? undefined
       : await startMetricsServer({ ...config.metrics, metrics });
+    if (config.metrics !== undefined) {
+      queueMetricsTimer = setInterval(() => void refreshQueueMetrics(), 10_000);
+      queueMetricsTimer.unref();
+    }
   } catch (error) {
+    if (queueMetricsTimer !== undefined) clearInterval(queueMetricsTimer);
     await app.close();
     await internalProviderDispatcher?.close();
     await directorDispatcher?.close();
@@ -155,6 +170,7 @@ async function main(): Promise<void> {
     if (shutdownStarted) return;
     shutdownStarted = true;
     try {
+      if (queueMetricsTimer !== undefined) clearInterval(queueMetricsTimer);
       await closeMetricsServer(metricsServer);
       await app.close();
       await internalProviderDispatcher?.close();

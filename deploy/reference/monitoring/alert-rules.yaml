@@ -30,6 +30,27 @@ spec:
             severity: critical
           annotations:
             summary: Dirizhor readiness has been unavailable for 120 seconds.
+        - alert: DirizhorPostgresUnavailable
+          expr: min_over_time(dirizhor_postgres_up{service="director"}[2m]) < 1
+          for: 120s
+          labels:
+            severity: critical
+          annotations:
+            summary: Director cannot reach PostgreSQL for 120 seconds.
+        - alert: DirizhorDocumentStoreUnavailable
+          expr: min_over_time(dirizhor_document_store_up{service="director"}[2m]) < 1
+          for: 120s
+          labels:
+            severity: critical
+          annotations:
+            summary: Director cannot verify the Document Store for 120 seconds.
+        - alert: DirizhorAuditWriteFailure
+          expr: increase(dirizhor_audit_write_failures_total{service="director"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: Director failed to write an authorization audit event.
         - alert: DirizhorHttpErrorRateHigh
           expr: sum by (service) (rate(dirizhor_http_requests_total{status_class="5xx"}[5m])) / clamp_min(sum by (service) (rate(dirizhor_http_requests_total[5m])), 0.001) > 0.01
           for: 5m
@@ -51,6 +72,20 @@ spec:
             severity: warning
           annotations:
             summary: Dirizhor OIDC callback returns server errors.
+        - alert: DirizhorGatewayQueueStuck
+          expr: dirizhor_gateway_queue_oldest_seconds{service="gateway"} > 300
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Gateway has a pending execution older than 5 minutes.
+        - alert: DirizhorGatewayQueueScanFailure
+          expr: increase(dirizhor_gateway_queue_scan_failures_total{service="gateway"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Gateway cannot inspect its pending execution queue.
     - name: dirizhor-pilot-monitoring-control-plane
       rules:
         - alert: DirizhorPrometheusConfigReloadFailed

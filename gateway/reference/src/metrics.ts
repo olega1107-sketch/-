@@ -23,6 +23,9 @@ const durationBuckets = [0.05, 0.1, 0.25, 0.5, 1, 2.5, 5] as const;
 export class PrometheusMetrics implements HttpMetricRecorder {
   readonly #startedAtSeconds = Math.floor(Date.now() / 1_000);
   #ready = true;
+  #queuePending = 0;
+  #queueOldestSeconds = 0;
+  #queueScanFailures = 0;
   readonly #requestCounts = new Map<string, RequestCount>();
   readonly #durations = new Map<string, DurationSample>();
 
@@ -60,6 +63,15 @@ export class PrometheusMetrics implements HttpMetricRecorder {
     this.#ready = ready;
   }
 
+  recordQueue(pending: number, oldestSeconds: number): void {
+    this.#queuePending = nonNegativeInteger(pending);
+    this.#queueOldestSeconds = nonNegativeSeconds(oldestSeconds);
+  }
+
+  recordQueueScanFailure(): void {
+    this.#queueScanFailures += 1;
+  }
+
   render(): string {
     const lines = [
       '# HELP dirizhor_service_up Process is responding on its internal metrics port.',
@@ -68,6 +80,15 @@ export class PrometheusMetrics implements HttpMetricRecorder {
       '# HELP dirizhor_readiness Last dependency readiness result recorded by the service.',
       '# TYPE dirizhor_readiness gauge',
       `dirizhor_readiness{service="${this.service}"} ${this.#ready ? 1 : 0}`,
+      '# HELP dirizhor_gateway_queue_pending Pending Gateway execution records.',
+      '# TYPE dirizhor_gateway_queue_pending gauge',
+      `dirizhor_gateway_queue_pending{service="${this.service}"} ${this.#queuePending}`,
+      '# HELP dirizhor_gateway_queue_oldest_seconds Age of the oldest pending Gateway execution record.',
+      '# TYPE dirizhor_gateway_queue_oldest_seconds gauge',
+      `dirizhor_gateway_queue_oldest_seconds{service="${this.service}"} ${this.#queueOldestSeconds}`,
+      '# HELP dirizhor_gateway_queue_scan_failures_total Failed pending-queue metric collection attempts.',
+      '# TYPE dirizhor_gateway_queue_scan_failures_total counter',
+      `dirizhor_gateway_queue_scan_failures_total{service="${this.service}"} ${this.#queueScanFailures}`,
       '# HELP process_start_time_seconds Unix time when the process started.',
       '# TYPE process_start_time_seconds gauge',
       `process_start_time_seconds{service="${this.service}"} ${this.#startedAtSeconds}`,
@@ -143,4 +164,12 @@ export function metricRoute(route: string | undefined): string {
     return 'unmatched';
   }
   return route;
+}
+
+function nonNegativeInteger(value: number): number {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+function nonNegativeSeconds(value: number): number {
+  return Number.isFinite(value) && value >= 0 ? value : 0;
 }

@@ -23,6 +23,7 @@ test('renders a private digest-pinned Resend relay boundary', () => {
   assert.equal(deployment.spec.template.spec.automountServiceAccountToken, false);
   assert.equal(deployment.spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem, true);
   assert.equal(deployment.spec.template.spec.containers[0].env.some((item) => item.name === 'RESEND_API_KEY'), false);
+  assert.deepEqual(cilium.spec.egress[0].toPorts[0].rules.dns, [{ matchPattern: '*' }]);
   assert.deepEqual(cilium.spec.egress[1].toFQDNs, [{ matchName: 'api.resend.com' }]);
   assert.equal(alertmanager.spec.receivers[0].webhookConfigs[0].httpConfig.authorization.credentials.key, 'webhook-token');
 });

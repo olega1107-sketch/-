@@ -117,7 +117,10 @@ export function renderAlertRelay(config) {
       egress: [
         {
           toEndpoints: [{ matchLabels: { 'k8s:io.kubernetes.pod.namespace': 'kube-system', 'k8s:k8s-app': 'kube-dns' } }],
-          toPorts: [{ ports: [{ port: '53', protocol: 'UDP' }, { port: '53', protocol: 'TCP' }] }],
+          toPorts: [{
+            ports: [{ port: '53', protocol: 'UDP' }, { port: '53', protocol: 'TCP' }],
+            rules: { dns: [{ matchPattern: '*' }] },
+          }],
         },
         {
           toFQDNs: [{ matchName: 'api.resend.com' }],

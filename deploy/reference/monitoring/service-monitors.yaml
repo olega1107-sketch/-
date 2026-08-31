@@ -63,3 +63,45 @@ spec:
       relabelings:
         - targetLabel: service
           replacement: edge
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dirizhor-prometheus-control-plane
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  namespaceSelector:
+    matchNames: [monitoring]
+  selector:
+    matchLabels:
+      operated-prometheus: "true"
+  endpoints:
+    - port: http-web
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service
+          replacement: prometheus
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: dirizhor-alertmanager-control-plane
+  namespace: monitoring
+  labels:
+    dirizhor.io/monitoring: pilot
+spec:
+  namespaceSelector:
+    matchNames: [monitoring]
+  selector:
+    matchLabels:
+      operated-alertmanager: "true"
+  endpoints:
+    - port: http-web
+      path: /metrics
+      interval: 30s
+      relabelings:
+        - targetLabel: service
+          replacement: alertmanager

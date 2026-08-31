@@ -33,7 +33,7 @@ Pilot пока не готов к GA. Блокеры относятся к opera
 | --- | --- | --- |
 | Formal adoption | `BLOCKED` | Числа подготовлены, проверены validator и подтверждены owner, но нет полного `APPROVED` report с реальными evidence refs и независимым adoption sign-off |
 | Backup and restore | `PASS` | Managed PostgreSQL PITR Drill A и Document Store Recovery R6 завершены на изолированных recovery resources в пределах утверждённых RPO/RTO; см. operational update выше |
-| Alerting and dashboards | `WARN` | Private Prometheus, Alertmanager, ServiceMonitor и application rules применены; targets `UP`, critical routing и controlled `FIRING`/`RESOLVED` delivery доказаны. Дополнительные PostgreSQL, backup/restore, queue и audit exporters/rules ещё не получили live coverage. |
+| Alerting and dashboards | `WARN` | Private Prometheus, Alertmanager, ServiceMonitor и application rules применены; targets `UP`, critical routing и controlled `FIRING`/`RESOLVED` delivery доказаны. Director PostgreSQL/Document Store, audit и Gateway queue metrics now have runtime collection; their individual rules still need controlled firing. PostgreSQL connection/lock/backup and Document Store backup exporters remain absent. |
 | Single-replica Director/Gateway и `Recreate` | `ACCEPTED RISK` | Owner принял риск только для pilot; это не отдельный `PASS`/`FAIL` gate |
 | Residual risks | 5 пунктов | Это перечень рисков, а не самостоятельный conformance gate |
 
@@ -92,7 +92,10 @@ callback и control-plane failures. Private `AlertmanagerConfig` и relay
 подтверждённо доставлены ответственному; evidence приведён в
 [`alerting-resend-delivery-2026-08-31.md`](alerting-resend-delivery-2026-08-31.md).
 Следовательно, route/delivery имеет `PASS`, а общий раздел остаётся `WARN`
-только из-за неразвёрнутых дополнительных exporters/rules.
+только из-за неполного coverage дополнительных exporters/rules и отсутствия
+controlled firing для новых signal-specific rules. Runtime collection for
+Director dependency/audit and Gateway queue metrics is recorded in
+[`observability-runtime-rollout-2026-08-31.md`](observability-runtime-rollout-2026-08-31.md).
 
 Непокрытые metric/exporter signals перечислены в
 [monitoring gap](../../deploy/reference/pilot-monitoring-gap.md). Даже после
@@ -106,8 +109,9 @@ callback и control-plane failures. Private `AlertmanagerConfig` и relay
 1. Formal adoption ещё не имеет полного `APPROVED` evidence.
 2. Resend остаётся внешней HTTPS-зависимостью critical notification route.
 3. Director и Gateway остаются single point of failure в pilot-профиле.
-4. Дополнительные PostgreSQL, Document Store, queue и audit exporters/rules
-   пока подготовлены только как metric contract, а не как live coverage.
+4. PostgreSQL connection/lock/backup и Document Store backup exporters
+   отсутствуют; новые dependency, audit и queue rules ещё не прошли controlled
+   firing/delivery evidence.
 5. Долгоживущий адрес `pilot.baza.fyi` требует явного решения перед production GA.
 
 Пункты 3 и 5 являются принятыми или управляемыми рисками и не должны ошибочно

@@ -7,9 +7,10 @@ application и monitoring control-plane, Helm values для private
 Prometheus/Alertmanager и private Resend webhook relay. Они
 покрывают availability, readiness 120 seconds, HTTP 5xx 1 percent/5 minutes,
 p95 1500 ms, OIDC callback 5xx и control-plane reload/delivery failures.
-Локально подготовлены также Director PostgreSQL/Document Store readiness,
-authorization-audit write failures и Gateway queue age/scan failures; до
-публикации image и rollout это не является runtime coverage.
+Director PostgreSQL/Document Store readiness, authorization-audit write failures
+и Gateway queue age/scan failures уже публикуются application runtime и
+собираются private Prometheus. Их отдельные alert rules всё ещё требуют
+controlled firing и evidence доставки.
 Статическая конфигурация не заменяет runtime evidence: каждый target, правило,
 routing path и фактическая доставка должны быть проверены отдельно.
 
@@ -28,10 +29,10 @@ routing path и фактическая доставка должны быть п
 - PostgreSQL connection saturation, lock contention и replica lag;
 - PostgreSQL WAL/archive lag более 300 секунд;
 - Document Store read/write/hash errors и backup age более 1800 секунд;
-- Gateway queue depth; rule для oldest pending execution более 5 минут уже
-  подготовлен локально, но требует rollout и controlled firing;
-- audit write failure больше нуля; rule и metric contract подготовлены локально,
-  но требуют rollout и controlled firing;
+- Gateway queue depth; rule для oldest pending execution более 5 минут применён,
+  но требует controlled firing и evidence доставки;
+- audit write failure больше нуля; rule и metric contract применены, но требуют
+  controlled firing и evidence доставки;
 - unexpected pod restarts, unavailable replicas и node pressure, когда будет
   включён источник Kubernetes metrics;
 - certificate expiry и failed renewal для public TLS.

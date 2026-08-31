@@ -1,0 +1,123 @@
+name: Alert relay OCI release
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Approved alert relay release identifier
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: alert-relay-oci-release
+  cancel-in-progress: false
+
+env:
+  REGISTRY_HOST: registry.digitalocean.com
+  REGISTRY: registry.digitalocean.com/dirizherpilotregistry
+  RELAY_IMAGE_REPOSITORY: node-build
+  DOCKER_VERSION: 28.3.3
+  BUILDX_VERSION: 0.28.0
+  SYFT_VERSION: 1.45.1
+  TRIVY_VERSION: 0.74.0
+  COSIGN_VERSION: 3.0.2
+  NODE_RUNTIME_IMAGE: docker.io/library/node:24.19.0-alpine3.24@sha256:d32cdf619f63fe0471182d08996dd516c6275bb5fd31ae06e55a570bd9e1ad43
+
+jobs:
+  release:
+    name: Build, scan, sign, and publish private alert relay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: digitalocean-pilot
+    steps:
+      - name: Check out exact revision
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Docker
+        uses: docker/setup-docker-action@e43656e248c0bd0647d3f5c195d116aacf6fcaf4 # v4.7.0
+        with:
+          version: ${{ env.DOCKER_VERSION }}
+
+      - name: Set up pinned Buildx
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+        with:
+          version: v${{ env.BUILDX_VERSION }}
+
+      - name: Install pinned release tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tools="${RUNNER_TEMP}/alert-relay-tools"
+          downloads="${RUNNER_TEMP}/alert-relay-downloads"
+          install -d -m 0700 "${tools}" "${downloads}"
+          curl --fail --location --silent --show-error --output "${downloads}/syft.tar.gz" "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' '20c84195e24927f50a3b2269946be51f4c4abc9d2f145fee7388b4199149f716' "${downloads}/syft.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/syft.tar.gz" -C "${tools}" syft
+          curl --fail --location --silent --show-error --output "${downloads}/trivy.tar.gz" "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' "${downloads}/trivy.tar.gz" | sha256sum --check --strict
+          tar -xzf "${downloads}/trivy.tar.gz" -C "${tools}" trivy
+          curl --fail --location --silent --show-error --output "${tools}/cosign" "https://github.com/sigstore/cosign/releases/download/v${COSIGN_VERSION}/cosign-linux-amd64"
+          printf '%s  %s\n' '46dbdcb5467a3dfec2526923d0b3365e40c8d9dc00ec23d5aca3437449e8cbfd' "${tools}/cosign" | sha256sum --check --strict
+          chmod 0555 "${tools}/syft" "${tools}/trivy" "${tools}/cosign"
+          printf '%s\n' "${tools}" >> "${GITHUB_PATH}"
+
+      - name: Verify request and registry access
+        shell: bash
+        env:
+          RELEASE_ID: ${{ inputs.release_id }}
+          REGISTRY_TOKEN: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+        run: |
+          set -euo pipefail
+          [[ "${RELEASE_ID}" =~ ^[A-Za-z0-9][A-Za-z0-9._-]{2,127}$ ]]
+          test -n "${REGISTRY_TOKEN}"
+          printf '%s' "${REGISTRY_TOKEN}" | docker login "${REGISTRY_HOST}" --username "${REGISTRY_TOKEN}" --password-stdin
+          printf 'RELEASE_SUFFIX=%s\n' "${GITHUB_SHA}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" >> "${GITHUB_ENV}"
+          printf 'CERTIFICATE_IDENTITY=%s\n' "https://github.com/${GITHUB_WORKFLOW_REF}" >> "${GITHUB_ENV}"
+
+      - name: Build, scan, sign, and verify relay image
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="${RUNNER_TEMP}/alert-relay-evidence"
+          install -d -m 0700 "${evidence}"
+          image="${REGISTRY}/${RELAY_IMAGE_REPOSITORY}:alert-relay-${RELEASE_SUFFIX}"
+          docker buildx build --file deploy/reference/monitoring/Dockerfile.alert-relay --platform linux/amd64 --provenance=mode=max --sbom=true --metadata-file "${evidence}/build-metadata.json" --build-arg "NODE_RUNTIME_IMAGE=${NODE_RUNTIME_IMAGE}" --tag "${image}" --push .
+          digest="$(jq -er '."containerimage.digest" | select(test("^sha256:[0-9a-f]{64}$"))' "${evidence}/build-metadata.json")"
+          image_ref="${REGISTRY}/${RELAY_IMAGE_REPOSITORY}@${digest}"
+          syft "${image_ref}" -o "cyclonedx-json=${evidence}/sbom.cdx.json"
+          jq -e '.bomFormat == "CycloneDX" and (.components | length > 0)' "${evidence}/sbom.cdx.json" > /dev/null
+          printf '%s\n' '# Suppressions are prohibited by the pilot policy.' > "${evidence}/trivy-empty.ignore"
+          trivy image --download-db-only
+          trivy image --scanners vuln --exit-code 1 --severity HIGH,CRITICAL --ignorefile "${evidence}/trivy-empty.ignore" --exit-on-eol 1 --format json --output "${evidence}/trivy.json" "${image_ref}"
+          response="$(curl --fail --silent --show-error --header "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore")"
+          SIGSTORE_ID_TOKEN="$(jq -er '.value | select(type == "string" and length > 0)' <<< "${response}")"
+          export SIGSTORE_ID_TOKEN
+          echo "::add-mask::${SIGSTORE_ID_TOKEN}"
+          cosign sign --yes "${image_ref}"
+          cosign attest --yes --type cyclonedx --predicate "${evidence}/sbom.cdx.json" "${image_ref}"
+          cosign verify --output json --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${image_ref}" > "${evidence}/signature-verification.json"
+          cosign verify-attestation --type cyclonedx --certificate-identity "${CERTIFICATE_IDENTITY}" --certificate-oidc-issuer https://token.actions.githubusercontent.com "${image_ref}" > "${evidence}/attestation-verification.json"
+          jq -n --arg release_id "${{ inputs.release_id }}" --arg image "${image_ref}" '{release_id: $release_id, image: $image}' > "${evidence}/release.json"
+          chmod 0600 "${evidence}/release.json"
+
+      - name: Remove registry credentials
+        if: always()
+        shell: bash
+        run: |
+          docker logout "${REGISTRY_HOST}" || true
+          rm -f "${HOME}/.docker/config.json"
+
+      - name: Retain non-secret release evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: alert-relay-oci-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/alert-relay-evidence
+          if-no-files-found: warn
+          retention-days: 30

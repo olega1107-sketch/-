@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "namespace": "monitoring",
+  "image": "registry.example.invalid/dirizhor/alert-relay@sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "sender": "alerts@alerts.baza.fyi",
+  "recipient": "olega.1107@gmail.com",
+  "secrets": {
+    "runtime": "dirizhor-alert-relay-runtime"
+  }
+}

@@ -20,7 +20,7 @@ test('repository container contract passes with canonical base references', asyn
   const report = await validateContainerContract({ environment: validEnvironment });
   assert.equal(report.status, 'ok');
   assert.equal(report.runtime_uid, 10_001);
-  assert.deepEqual(report.dockerfiles, ['director', 'gateway', 'inference-adapter', 'edge']);
+  assert.deepEqual(report.dockerfiles, ['director', 'gateway', 'inference-adapter', 'edge', 'alert-relay']);
 });
 
 test('mutable or malformed base image references are rejected', () => {

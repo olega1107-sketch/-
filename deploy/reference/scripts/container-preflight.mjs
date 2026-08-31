@@ -77,6 +77,21 @@ const dockerfileProfiles = [
       'ENTRYPOINT ["/usr/local/bin/dirizhor-edge"]',
     ],
   },
+  {
+    name: 'alert-relay',
+    path: 'deploy/reference/monitoring/Dockerfile.alert-relay',
+    required: [
+      'FROM ${NODE_RUNTIME_IMAGE} AS build',
+      'FROM ${NODE_RUNTIME_IMAGE} AS runtime',
+      'const p=/^[^@\\s]+@sha256:[0-9a-f]{64}$/',
+      'apk add --no-cache --upgrade libcrypto3=3.5.8-r0 libssl3=3.5.8-r0',
+      'rm -rf /usr/local/lib/node_modules/npm',
+      'rm -f /usr/local/bin/npm /usr/local/bin/npx',
+      'COPY --chown=10001:10001 deploy/reference/monitoring/resend-relay.mjs',
+      'USER 10001:10001',
+      'ENTRYPOINT ["node", "resend-relay.mjs"]',
+    ],
+  },
 ];
 
 export async function validateContainerContract({

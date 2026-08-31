@@ -11,6 +11,10 @@ const restoreVerifierWorkflowUrl = new URL(
   '../../../.github/workflows/restore-verifier-oci-release.yml',
   import.meta.url,
 );
+const alertRelayWorkflowUrl = new URL(
+  '../../../.github/workflows/alert-relay-oci-release.yml',
+  import.meta.url,
+);
 
 test('pilot OCI release is manual, pinned, protected, and fail-closed', async () => {
   const workflow = await readFile(workflowUrl, 'utf8');
@@ -99,6 +103,29 @@ test('restore verifier OCI release is manual, protected, digest-only, and isolat
   assert.match(workflow, /VERIFIER_IMAGE_REPOSITORY: node-build/);
   assert.match(workflow, /image="\$\{REGISTRY\}\/\$\{VERIFIER_IMAGE_REPOSITORY\}:restore-verifier-\$\{RELEASE_SUFFIX\}"/);
   assert.match(workflow, /image_ref="\$\{REGISTRY\}\/\$\{VERIFIER_IMAGE_REPOSITORY\}@\$\{digest\}"/);
+  assert.match(workflow, /secrets\.DIGITALOCEAN_ACCESS_TOKEN/);
+  assert.match(workflow, /rm -f "\$\{HOME\}\/\.docker\/config\.json"/);
+  assert.equal(workflow.includes(':latest'), false);
+  assert.equal(workflow.match(/secrets\./g)?.length, 1);
+});
+
+test('alert relay OCI release is manual, private, and fail-closed', async () => {
+  const workflow = await readFile(alertRelayWorkflowUrl, 'utf8');
+
+  assert.match(workflow, /^  workflow_dispatch:$/m);
+  assert.equal(/^  (?:push|pull_request):/m.test(workflow), false);
+  assert.match(workflow, /^  contents: read$/m);
+  assert.match(workflow, /^  id-token: write$/m);
+  assert.match(workflow, /^    environment: digitalocean-pilot$/m);
+  assert.match(workflow, /deploy\/reference\/monitoring\/Dockerfile\.alert-relay/);
+  assert.match(workflow, /RELAY_IMAGE_REPOSITORY: node-build/);
+  assert.match(workflow, /--platform linux\/amd64/);
+  assert.match(workflow, /--provenance=mode=max/);
+  assert.match(workflow, /--sbom=true/);
+  assert.match(workflow, /--severity HIGH,CRITICAL/);
+  assert.match(workflow, /--exit-on-eol 1/);
+  assert.match(workflow, /cosign sign --yes/);
+  assert.match(workflow, /cosign verify-attestation --type cyclonedx/);
   assert.match(workflow, /secrets\.DIGITALOCEAN_ACCESS_TOKEN/);
   assert.match(workflow, /rm -f "\$\{HOME\}\/\.docker\/config\.json"/);
   assert.equal(workflow.includes(':latest'), false);
